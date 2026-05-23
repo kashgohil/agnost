@@ -16,4 +16,10 @@ export const config = {
   //   - dataset generation: hard multi-turn constraints → needs 4.1-mini or stronger
   //   - signal extraction: single-pass classification → 4o-mini handles it
   signalExtractionModel: process.env.SIGNAL_EXTRACTION_MODEL ?? "openai/gpt-4o-mini",
+  embeddingModel: process.env.EMBEDDING_MODEL ?? "openai/text-embedding-3-small",
+  clusterLabelingModel: process.env.CLUSTER_LABELING_MODEL ?? "openai/gpt-4o-mini",
+  // How to invoke scripts/cluster.py. Defaults to `uv run` (auto-installs
+  // PEP 723 deps on first call, caches afterwards). Override to e.g.
+  // ".venv/bin/python" if you prefer to manage your own env.
+  clusterRunner: process.env.CLUSTER_RUNNER ?? "uv run",
 };
