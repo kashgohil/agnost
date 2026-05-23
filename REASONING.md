@@ -122,7 +122,7 @@ Every insight carries:
 - **Key observation** — optional, only when the data actually reveals something the aggregates don't. ("Most failures hit orders 31–60 days old — within reach of the policy line.")
 - **Metrics still present** — volume %, sentiment, weekly sparkline, attribution, marker distribution, end-reason distribution. They *support* the insight rather than *being* the insight.
 
-Deterministic logic computes the metrics and assigns the tags; the LLM only writes the prose. Metrics where it matters, prose where it adds polish. The prompt is given the cluster's metrics plus 8 sample user messages, with hard rules: don't mention a tool unless attribution explicitly names one; don't describe a positive-sentiment cluster as a problem.
+Deterministic logic computes the metrics and assigns the tags; the LLM only writes the prose. Metrics where it matters, prose where it adds polish. The prompt is given the cluster's metrics, its top-N dominant intent strings with turn counts, and 8 sample user messages, with hard rules: don't mention a tool unless attribution explicitly names one; don't describe a positive-sentiment cluster as a problem.
 
 ### 7. Eval-set is the engineer's loop-closer
 
