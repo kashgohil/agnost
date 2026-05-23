@@ -7,7 +7,9 @@ services:
       POSTGRES_PASSWORD: agnost
       POSTGRES_DB: agnost
     ports:
-      - "5432:5432"
+      # Mapped to 5433 on host because 5432 commonly conflicts with a local
+      # Postgres install. Change here and in .env if you want the default.
+      - "5433:5432"
     volumes:
       - agnost_pgdata:/var/lib/postgresql/data
     healthcheck:
