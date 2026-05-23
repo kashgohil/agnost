@@ -12,6 +12,7 @@ import {
   pgTable,
   text,
   timestamp,
+  vector,
 } from "drizzle-orm/pg-core";
 
 export const conversations = pgTable(
@@ -101,5 +102,42 @@ export const turnSignals = pgTable(
     intentIdx: index("turn_signals_intent_idx").on(t.intent),
     frustrationMarkersIdx: index("turn_signals_frustration_markers_idx")
       .using("gin", t.frustrationMarkers),
+  }),
+);
+
+// Clusters of semantically-related intents. Re-clusterable: TRUNCATE clusters
+// then re-run; intent embeddings on `intents` are preserved. `member_count` is
+// denormalized for fast filtering.
+export const clusters = pgTable("clusters", {
+  id: text("id").primaryKey(), // "cluster_0001"
+  label: text("label").notNull(),
+  memberCount: integer("member_count").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .default(sql`now()`),
+});
+
+// One row per UNIQUE intent string across the corpus. Embedded once, then
+// reused across re-clustering runs. cluster_id is nullable: HDBSCAN noise
+// points and not-yet-clustered intents both sit at NULL.
+export const intents = pgTable(
+  "intents",
+  {
+    intent: text("intent").primaryKey(),
+    embedding: vector("embedding", { dimensions: 1536 }),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+    embeddedAt: timestamp("embedded_at", { withTimezone: true }),
+    clusterId: text("cluster_id").references(() => clusters.id, { onDelete: "set null" }),
+    probability: doublePrecision("probability"),
+    clusteredAt: timestamp("clustered_at", { withTimezone: true }),
+  },
+  (t) => ({
+    clusterIdx: index("intents_cluster_id_idx").on(t.clusterId),
+    // HNSW index for ANN lookups if we ever need them. cosine distance to match
+    // our cluster-time distance metric.
+    embeddingIdx: index("intents_embedding_idx")
+      .using("hnsw", t.embedding.op("vector_cosine_ops")),
   }),
 );
