@@ -16,7 +16,7 @@ export function buildPrompt(scenario: Scenario, sk: Skeleton): string {
   });
   const patternBlock = patternLines.length
     ? patternLines.join("\n")
-    : "  (no tool calls in this conversation)";
+    : "  NONE. This conversation must contain ZERO tool calls. Every turn (both user and assistant) must have an empty tool_calls array. The agent does not call any tool in this scenario because no suitable tool exists.";
 
   return `You are generating a single synthetic conversation between a user and an AI customer-support agent for the purpose of building a test dataset. The conversation must feel natural — varied phrasing, realistic typos occasionally, different tones — not templated.
 

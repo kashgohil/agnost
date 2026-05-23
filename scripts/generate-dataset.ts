@@ -74,7 +74,11 @@ async function main() {
 
   const total = workList.length;
   let done = 0;
+  let failed = 0;
 
+  // Per-conversation error containment — a single bad output (after retries)
+  // should not abort a 500-conversation run. Failures are logged and the
+  // conversation is dropped from ground_truth; the rest continues.
   const tasks = workList.map(([skeleton, weekIdx], i) =>
     sem.run(async () => {
       const convId = conversationId(scenarioName, i);
@@ -92,24 +96,29 @@ async function main() {
         });
         done++;
         if (done % 10 === 0 || done === total) {
-          process.stderr.write(`\rgenerating: ${done}/${total}`);
+          process.stderr.write(`\rgenerating: ${done}/${total} (failed: ${failed})`);
         }
         return row;
       } catch (err) {
+        failed++;
         process.stderr.write(
-          `\n[error] ${convId}: ${(err as Error).message}\n`,
+          `\n[skip] ${convId} (${skeleton.mode_id}): ${(err as Error).message}\n`,
         );
-        throw err;
+        return null;
       }
     }),
   );
 
-  const groundTruth = await Promise.all(tasks);
+  const groundTruthRaw = await Promise.all(tasks);
+  const groundTruth = groundTruthRaw.filter((r): r is NonNullable<typeof r> => r !== null);
   process.stderr.write("\n");
 
   const gtPath = join(values.out, "_ground_truth.json");
   writeFileSync(gtPath, JSON.stringify(groundTruth, null, 2));
   console.log(`Wrote ${groundTruth.length} conversations to ${values.out}`);
+  if (failed > 0) {
+    console.log(`Skipped ${failed} conversation(s) after retries. Re-run to retry just those.`);
+  }
   console.log(`Ground truth at ${gtPath}`);
 }
 
