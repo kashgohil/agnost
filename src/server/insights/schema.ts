@@ -14,12 +14,20 @@ const tagsParam = z
   .optional()
   .transform((v) => (v === undefined ? [] : Array.isArray(v) ? v : [v]));
 
+// Query-string booleans cannot use z.coerce.boolean() — it calls Boolean(),
+// and Boolean("false") === true (any non-empty string is truthy). Parse
+// explicitly: "true"/"1" → true, "false"/"0"/missing → false.
+const boolParam = z
+  .union([z.literal("true"), z.literal("false"), z.literal("1"), z.literal("0")])
+  .optional()
+  .transform((v) => v === "true" || v === "1");
+
 export const ListInsightsQuerySchema = z.object({
   tag: tagsParam,
   min_volume_pct: z.coerce.number().min(0).max(1).optional(),
   min_conversation_count: z.coerce.number().int().min(0).optional(),
   sort: z.enum(SortOptions).default("volume_desc"),
-  include_uncategorized: z.coerce.boolean().default(false),
+  include_uncategorized: boolParam,
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
