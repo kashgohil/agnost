@@ -12,6 +12,10 @@ services:
       - "5433:5432"
     volumes:
       - agnost_pgdata:/var/lib/postgresql/data
+      # Runs on first init of a fresh volume. Enables pgvector. For existing
+      # volumes, run: docker exec -it agnost-postgres psql -U agnost -d agnost \
+      #               -c "CREATE EXTENSION IF NOT EXISTS vector;"
+      - ./docker/init-extensions.sql:/docker-entrypoint-initdb.d/01-extensions.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agnost -d agnost"]
       interval: 2s
