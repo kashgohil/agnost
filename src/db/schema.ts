@@ -118,6 +118,11 @@ export const insights = pgTable(
     tags: text("tags").array().notNull(),
     taxonomyVersion: integer("taxonomy_version").notNull(),
     headline: text("headline").notNull(),
+    // The insight content beyond the headline. Recommendation tells the PM
+    // what to consider doing; key_observation is an optional specific finding
+    // from the cluster's samples that wouldn't be obvious from aggregates.
+    recommendation: text("recommendation").notNull(),
+    keyObservation: text("key_observation"),
     volumePct: doublePrecision("volume_pct").notNull(),
     conversationCount: integer("conversation_count").notNull(),
     sentimentAvg: doublePrecision("sentiment_avg").notNull(),

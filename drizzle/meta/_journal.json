@@ -36,6 +36,13 @@
       "when": 1779565356431,
       "tag": "0004_breezy_hulk",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1779568275758,
+      "tag": "0005_mature_nehzno",
+      "breakpoints": true
     }
   ]
 }
