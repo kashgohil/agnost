@@ -1,0 +1,281 @@
+# ShopCo: mid-size e-commerce customer-support agent.
+# Scenario config consumed by the generic dataset generator.
+# Swap this file for another domain (e.g., dev-tools agent) without changing the generator.
+
+domain: shopco
+agent_id: shopco-support-v2
+agent_persona: >
+  Customer support agent for ShopCo, a mid-size online retailer (apparel, home goods,
+  electronics). Handles order lookup, refunds, shipping changes, inventory checks,
+  product recommendations. Escalates to human when stuck.
+
+# Available tools the agent can call. failure_rules describe when/how each tool
+# returns non-success outcomes — the generator uses these to produce realistic
+# tool-call spans inside conversations.
+tools:
+  - name: lookup_order
+    description: Fetch order details by order_id or user email.
+    failure_rules:
+      - condition: order_age_days > 90
+        outcome: empty_result
+        note: Silent failure — empty payload, no error. Drives drop-off mode.
+      - condition: malformed_order_id
+        outcome: error
+
+  - name: process_refund
+    description: Issue refund for an order.
+    failure_rules:
+      - condition: order_age_days > 30
+        outcome: error
+        error_message: "Refund window expired (30 days)."
+      - condition: order_status != 'delivered'
+        outcome: error
+        error_message: "Cannot refund undelivered order."
+
+  - name: update_shipping_address
+    description: Change shipping address for an order in transit.
+    failure_rules:
+      - condition: order_status == 'dispatched'
+        outcome: error
+        error_message: "Address cannot be changed after dispatch."
+
+  - name: check_inventory
+    description: Check stock for a product SKU.
+    failure_rules: []
+
+  - name: recommend_product
+    description: Suggest products based on user preferences.
+    failure_rules: []
+
+  - name: escalate_to_human
+    description: Hand off conversation to a human agent.
+    failure_rules: []
+
+# Time window for synthetic timestamps. 6 weeks gives enough resolution for trend.
+time_window:
+  start: 2026-04-06
+  weeks: 6
+
+# Failure modes the generator seeds. Each mode produces target_count conversations
+# spread across week_distribution. Skeletons are hand-written backbones; the
+# generator expands each skeleton via LLM with surface variation.
+failure_modes:
+
+  - id: refund_delay_outside_window
+    target_count: 110
+    expected_insight_type: complaint
+    expected_attributed_cause:
+      tool: process_refund
+      failure_signature: outside_30_day_window
+    # Increasing week-over-week → trend should surface as "up".
+    week_distribution: [10, 12, 16, 20, 24, 28]
+    skeletons:
+      - user_goal: refund_old_order
+        narrative: >
+          User received a defective product weeks ago, only now requesting refund.
+          Order is 45+ days old. Agent looks up order successfully, attempts refund,
+          process_refund errors out with "Refund window expired". User pushes back,
+          asks for exception. Agent has no path forward, eventually offers store
+          credit or escalates. User is frustrated.
+        expected_user_sentiment: negative
+        expected_end_reason: escalated
+        key_phrases:
+          - "want a refund"
+          - "this is unacceptable"
+          - "I just want my money back"
+        tool_call_pattern:
+          - tool: lookup_order
+            outcome: success
+          - tool: process_refund
+            outcome: error
+            error_signature: outside_30_day_window
+
+      - user_goal: refund_old_order
+        narrative: >
+          Similar to above but user is calmer, accepts store credit reluctantly.
+          End reason: resolved (but sentiment still negative).
+        expected_user_sentiment: negative
+        expected_end_reason: resolved
+        key_phrases:
+          - "I understand the policy but"
+          - "store credit is fine I guess"
+        tool_call_pattern:
+          - tool: lookup_order
+            outcome: success
+          - tool: process_refund
+            outcome: error
+            error_signature: outside_30_day_window
+
+      - user_goal: refund_old_order
+        narrative: >
+          User gives up mid-conversation after the refund error. Drops off without
+          resolution.
+        expected_user_sentiment: very_negative
+        expected_end_reason: user_dropped
+        key_phrases:
+          - "forget it"
+          - "I'll dispute with my bank"
+        tool_call_pattern:
+          - tool: lookup_order
+            outcome: success
+          - tool: process_refund
+            outcome: error
+            error_signature: outside_30_day_window
+
+  - id: bulk_export_feature_gap
+    target_count: 70
+    expected_insight_type: feature_gap
+    expected_attributed_cause: null  # No tool — this IS the point.
+    # Emerges only in later weeks — simulates a rising feature request.
+    week_distribution: [0, 0, 0, 15, 25, 30]
+    skeletons:
+      - user_goal: export_order_history
+        narrative: >
+          User (often a small-business buyer) asks to download/export their order
+          history as CSV or Excel for bookkeeping. No tool exists. Agent gives
+          generic refusal or suggests manually copying. User expresses frustration.
+        expected_user_sentiment: negative
+        expected_end_reason: agent_gave_up
+        key_phrases:
+          - "export my orders"
+          - "download as CSV"
+          - "for my accountant"
+          - "Excel spreadsheet"
+        tool_call_pattern: []  # No tool calls — capability gap.
+
+      - user_goal: export_order_history
+        narrative: >
+          Power user, multiple SKUs, asks repeatedly. Tries different phrasings
+          ("API access?", "report?", "spreadsheet?"). Agent unable to help.
+        expected_user_sentiment: very_negative
+        expected_end_reason: user_dropped
+        key_phrases:
+          - "is there an API"
+          - "monthly report"
+          - "any way to get this data"
+        tool_call_pattern: []
+
+  - id: shipping_address_post_dispatch
+    target_count: 80
+    expected_insight_type: friction
+    expected_attributed_cause:
+      tool: update_shipping_address
+      failure_signature: post_dispatch
+    # Flat — chronic friction, not emerging.
+    week_distribution: [14, 13, 14, 13, 13, 13]
+    skeletons:
+      - user_goal: redirect_in_transit_package
+        narrative: >
+          User moved / made typo / wants package sent elsewhere. Tool rejects
+          because order already dispatched. User retries with different framings
+          ("can you just contact the courier?", "what if I pay extra?"). Repeated
+          turns on the same intent — drives is_repeat signal high.
+        expected_user_sentiment: negative
+        expected_end_reason: escalated
+        key_phrases:
+          - "change my address"
+          - "wrong address"
+          - "can you contact the courier"
+        tool_call_pattern:
+          - tool: lookup_order
+            outcome: success
+          - tool: update_shipping_address
+            outcome: error
+            error_signature: post_dispatch
+          - tool: update_shipping_address
+            outcome: error
+            error_signature: post_dispatch  # User retries, agent retries.
+
+  - id: lookup_silent_failure_dropoff
+    target_count: 60
+    expected_insight_type: drop_off
+    expected_attributed_cause:
+      tool: lookup_order
+      failure_signature: empty_result
+    week_distribution: [10, 10, 10, 10, 10, 10]
+    skeletons:
+      - user_goal: find_old_order
+        narrative: >
+          User asks about an order from 4+ months ago. lookup_order returns
+          empty (silent failure — no error, just no data). Agent says "I can't
+          find that order" without explaining why. User tries once more, then
+          drops off without resolution.
+        expected_user_sentiment: negative
+        expected_end_reason: user_dropped
+        key_phrases:
+          - "I ordered months ago"
+          - "you should have records"
+          - "this is ridiculous"
+        tool_call_pattern:
+          - tool: lookup_order
+            outcome: empty_result
+          - tool: lookup_order
+            outcome: empty_result
+
+  - id: discount_code_confusion
+    target_count: 50
+    expected_insight_type: friction
+    expected_attributed_cause: null  # Reasoning gap, not tool failure — tests that attribution can be null.
+    week_distribution: [8, 8, 9, 8, 9, 8]
+    skeletons:
+      - user_goal: understand_discount_rejection
+        narrative: >
+          User's discount code rejected at checkout. Asks agent why. Agent has
+          no tool to inspect codes, gives generic responses ("check expiration",
+          "minimum cart value"). User goes in circles, sometimes escalates.
+        expected_user_sentiment: negative
+        expected_end_reason: escalated
+        key_phrases:
+          - "my code isn't working"
+          - "WELCOME20"
+          - "it says invalid"
+        tool_call_pattern: []  # No relevant tool exists.
+
+  - id: satisfied_baseline
+    target_count: 130
+    expected_insight_type: null  # Should NOT surface as an actionable insight.
+    expected_attributed_cause: null
+    week_distribution: [22, 22, 22, 22, 21, 21]
+    skeletons:
+      - user_goal: product_question
+        narrative: >
+          User asks about a product (sizing, color, availability). Agent uses
+          check_inventory or recommend_product, gives a clear answer. User
+          thanks the agent.
+        expected_user_sentiment: positive
+        expected_end_reason: resolved
+        key_phrases:
+          - "do you have"
+          - "what size"
+          - "thanks!"
+        tool_call_pattern:
+          - tool: check_inventory
+            outcome: success
+
+      - user_goal: order_status
+        narrative: >
+          User checks order status. lookup_order succeeds, agent gives tracking
+          info. Resolved.
+        expected_user_sentiment: neutral
+        expected_end_reason: resolved
+        key_phrases:
+          - "where is my order"
+          - "tracking number"
+        tool_call_pattern:
+          - tool: lookup_order
+            outcome: success
+
+      - user_goal: refund_within_window
+        narrative: >
+          User wants refund on a recent order (within 30 days). Refund processes
+          successfully. User is satisfied.
+        expected_user_sentiment: positive
+        expected_end_reason: resolved
+        key_phrases:
+          - "return this"
+          - "thanks for the quick refund"
+        tool_call_pattern:
+          - tool: lookup_order
+            outcome: success
+          - tool: process_refund
+            outcome: success
