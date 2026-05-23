@@ -9,7 +9,10 @@ import { asc, eq, isNotNull, sql } from "drizzle-orm";
 import { db, schema } from "../db/client.ts";
 import type { ClusterMetrics } from "./typology.ts";
 
-const EXAMPLES_PER_CLUSTER = 6;
+// Inlined preview examples on the insight row — enough to show phrasing
+// variety, few enough to keep the list endpoint snappy. Engineers wanting more
+// hit /v1/insights/:id/eval-set, which paginates the full set.
+const EXAMPLES_PER_CLUSTER = 3;
 
 export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
   const clusters = await db
