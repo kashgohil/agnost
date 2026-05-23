@@ -16,6 +16,8 @@ export type InsightWithLabel = {
   tags: string[];
   taxonomy_version: number;
   headline: string;
+  recommendation: string;
+  key_observation: string | null;
   volume_pct: number;
   conversation_count: number;
   sentiment_avg: number;
@@ -72,6 +74,8 @@ export async function listInsights(
       tags: schema.insights.tags,
       taxonomyVersion: schema.insights.taxonomyVersion,
       headline: schema.insights.headline,
+      recommendation: schema.insights.recommendation,
+      keyObservation: schema.insights.keyObservation,
       volumePct: schema.insights.volumePct,
       conversationCount: schema.insights.conversationCount,
       sentimentAvg: schema.insights.sentimentAvg,
@@ -118,6 +122,8 @@ export async function getInsightById(id: string): Promise<InsightWithLabel | nul
       tags: schema.insights.tags,
       taxonomyVersion: schema.insights.taxonomyVersion,
       headline: schema.insights.headline,
+      recommendation: schema.insights.recommendation,
+      keyObservation: schema.insights.keyObservation,
       volumePct: schema.insights.volumePct,
       conversationCount: schema.insights.conversationCount,
       sentimentAvg: schema.insights.sentimentAvg,
@@ -143,6 +149,8 @@ function toInsightWithLabel(row: {
   tags: string[];
   taxonomyVersion: number;
   headline: string;
+  recommendation: string;
+  keyObservation: string | null;
   volumePct: number;
   conversationCount: number;
   sentimentAvg: number;
@@ -160,6 +168,8 @@ function toInsightWithLabel(row: {
     tags: row.tags,
     taxonomy_version: row.taxonomyVersion,
     headline: row.headline,
+    recommendation: row.recommendation,
+    key_observation: row.keyObservation,
     volume_pct: row.volumePct,
     conversation_count: row.conversationCount,
     sentiment_avg: row.sentimentAvg,

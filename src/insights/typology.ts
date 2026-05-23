@@ -86,6 +86,7 @@ export type ClusterMetrics = {
   attributed_cause: { tool: string; failure_rate: number } | null;
   avg_latency_ms: number;
   example_conversation_ids: string[];
+  sample_messages: string[];
 };
 
 // Returns the full tag set for a cluster across all three axes.

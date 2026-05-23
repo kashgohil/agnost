@@ -4,7 +4,7 @@
  * the taxonomy (src/insights/typology.ts) is keeping up.
  *
  * Usage:
- *   bun scripts/generate-insights.ts [--headline-model SLUG] [--concurrency N]
+ *   bun scripts/generate-insights.ts [--content-model SLUG] [--concurrency N]
  */
 
 import { parseArgs } from "node:util";
@@ -15,14 +15,14 @@ import { runInsightsPipeline } from "../src/insights/pipeline.ts";
 async function main() {
   const { values } = parseArgs({
     options: {
-      "headline-model": { type: "string", default: config.insightHeadlineModel },
+      "content-model": { type: "string", default: config.insightHeadlineModel },
       concurrency: { type: "string", default: "5" },
     },
   });
 
   const stats = await runInsightsPipeline({
-    headlineModel: values["headline-model"]!,
-    headlineConcurrency: Number(values.concurrency),
+    contentModel: values["content-model"]!,
+    contentConcurrency: Number(values.concurrency),
     onProgress: (stage, info) => {
       process.stderr.write(`[${stage}]${info ? ` ${info}` : ""}\n`);
     },

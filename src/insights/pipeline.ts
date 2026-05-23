@@ -1,11 +1,11 @@
-// Insights pipeline: aggregate → classify → headline → persist.
+// Insights pipeline: aggregate → classify → generate-content → persist.
 //
 // Reports an `uncategorized_rate` because tag-staleness is the operational
 // signal that the taxonomy needs maintenance (see typology.ts changelog).
 
 import { Semaphore } from "../lib/concurrency.ts";
 import { aggregateAllClusters } from "./aggregate.ts";
-import { generateHeadline } from "./headline.ts";
+import { generateContent } from "./content.ts";
 import { persistInsights, type InsightRecord } from "./persist.ts";
 import { TAXONOMY_VERSION, classifyCluster } from "./typology.ts";
 
@@ -18,8 +18,8 @@ export type InsightsStats = {
 };
 
 export async function runInsightsPipeline(opts: {
-  headlineModel: string;
-  headlineConcurrency: number;
+  contentModel: string;
+  contentConcurrency: number;
   onProgress?: (stage: string, info?: string) => void;
 }): Promise<InsightsStats> {
   const log = (stage: string, info?: string) => opts.onProgress?.(stage, info);
@@ -41,18 +41,25 @@ export async function runInsightsPipeline(opts: {
   const classified = metrics.map((m) => ({ metrics: m, tags: classifyCluster(m) }));
   const uncategorized = classified.filter((c) => c.tags.problem === "uncategorized").length;
 
-  log("headline");
-  const sem = new Semaphore(opts.headlineConcurrency);
+  log("content");
+  const sem = new Semaphore(opts.contentConcurrency);
   const insights: InsightRecord[] = await Promise.all(
     classified.map((c, i) =>
       sem.run(async () => {
-        const headline = await generateHeadline(c.metrics, c.tags, opts.headlineModel);
+        const content = await generateContent(
+          c.metrics,
+          c.tags,
+          c.metrics.sample_messages,
+          opts.contentModel,
+        );
         return {
           id: `insight_${String(i + 1).padStart(4, "0")}`,
           cluster_id: c.metrics.cluster_id,
           tags: [c.tags.problem, c.tags.trajectory, c.tags.severity],
           taxonomy_version: TAXONOMY_VERSION,
-          headline,
+          headline: content.headline,
+          recommendation: content.recommendation,
+          key_observation: content.key_observation,
           volume_pct: c.metrics.volume_pct,
           conversation_count: c.metrics.conversation_count,
           sentiment_avg: c.metrics.sentiment_avg,

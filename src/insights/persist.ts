@@ -10,6 +10,8 @@ export type InsightRecord = {
   tags: string[];
   taxonomy_version: number;
   headline: string;
+  recommendation: string;
+  key_observation: string | null;
   volume_pct: number;
   conversation_count: number;
   sentiment_avg: number;
@@ -31,6 +33,8 @@ export async function persistInsights(insights: InsightRecord[]): Promise<void> 
         tags: i.tags,
         taxonomyVersion: i.taxonomy_version,
         headline: i.headline,
+        recommendation: i.recommendation,
+        keyObservation: i.key_observation,
         volumePct: i.volume_pct,
         conversationCount: i.conversation_count,
         sentimentAvg: i.sentiment_avg,
