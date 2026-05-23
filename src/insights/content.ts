@@ -45,6 +45,13 @@ export async function generateContent(
     ? `\n\nReal user messages from this cluster (use to ground specifics — do not directly quote):\n${sampleMessages.map((s) => `- "${s}"`).join("\n")}`
     : "";
 
+  // Top intents give the LLM a compact view of what's actually in the cluster
+  // beyond the LLM-generated label. Helps it write more specific
+  // recommendations grounded in the canonical intent strings, not just samples.
+  const topIntentsBlock = m.top_intents.length
+    ? `\n\nDominant intent strings in this cluster (canonical phrasings, with their turn counts):\n${m.top_intents.map((ti) => `- ${ti.intent} (${ti.turn_count} turns)`).join("\n")}`
+    : "";
+
   const tagGuidance = guidanceFor(tags.problem);
 
   const prompt = `You are turning a cluster of user-conversation analytics into an actionable insight for a product manager. The PM has already seen the volume %, sentiment, trend, and tool attribution on the card. Your job is to produce the INSIGHT — not restate the metrics.
@@ -56,7 +63,7 @@ Severity: ${tags.severity}
 Conversations in cluster: ${m.conversation_count} (${(m.volume_pct * 100).toFixed(0)}% of total)
 Average sentiment: ${m.sentiment_avg.toFixed(2)}
 Drop-off rate: ${((m.end_reason_distribution["user_dropped"] ?? 0) * 100).toFixed(0)}%
-Escalation rate: ${((m.end_reason_distribution["escalated"] ?? 0) * 100).toFixed(0)}%${causeBlurb}${samplesBlock}
+Escalation rate: ${((m.end_reason_distribution["escalated"] ?? 0) * 100).toFixed(0)}%${causeBlurb}${topIntentsBlock}${samplesBlock}
 
 Produce three pieces:
 
