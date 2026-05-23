@@ -18,6 +18,7 @@ export const config = {
   signalExtractionModel: process.env.SIGNAL_EXTRACTION_MODEL ?? "openai/gpt-4o-mini",
   embeddingModel: process.env.EMBEDDING_MODEL ?? "openai/text-embedding-3-small",
   clusterLabelingModel: process.env.CLUSTER_LABELING_MODEL ?? "openai/gpt-4o-mini",
+  insightHeadlineModel: process.env.INSIGHT_HEADLINE_MODEL ?? "openai/gpt-4o-mini",
   // How to invoke scripts/cluster.py. Defaults to `uv run` (auto-installs
   // PEP 723 deps on first call, caches afterwards). Override to e.g.
   // ".venv/bin/python" if you prefer to manage your own env.
