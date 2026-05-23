@@ -4,6 +4,8 @@
 
 import { sql } from "drizzle-orm";
 import {
+  boolean,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -69,5 +71,35 @@ export const toolCalls = pgTable(
   (t) => ({
     turnIdx: index("tool_calls_turn_idx").on(t.turnId),
     toolNameStatusIdx: index("tool_calls_tool_name_status_idx").on(t.toolName, t.status),
+  }),
+);
+
+// One row per USER turn that has been processed by the signal extractor.
+// Assistant turns are skipped — signals are about user intent/sentiment, not
+// agent output. `intent` is a short canonical phrase (e.g. "refund_old_order")
+// — what gets clustered later. See REASONING.md for why we cluster on
+// structured intents instead of raw text embeddings.
+//
+// `frustration_markers` is text[] (not jsonb) so we can put a GIN index on it
+// and run queries like "clusters with high `escalation_request` marker density"
+// directly in SQL.
+export const turnSignals = pgTable(
+  "turn_signals",
+  {
+    turnId: text("turn_id")
+      .primaryKey()
+      .references(() => turns.id, { onDelete: "cascade" }),
+    intent: text("intent").notNull(),
+    sentiment: doublePrecision("sentiment").notNull(), // -1 (very negative) to 1 (very positive)
+    frustrationMarkers: text("frustration_markers").array().notNull(),
+    isRepeat: boolean("is_repeat").notNull(),
+    extractedAt: timestamp("extracted_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => ({
+    intentIdx: index("turn_signals_intent_idx").on(t.intent),
+    frustrationMarkersIdx: index("turn_signals_frustration_markers_idx")
+      .using("gin", t.frustrationMarkers),
   }),
 );
