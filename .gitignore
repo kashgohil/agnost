@@ -1,3 +1,4 @@
 .claude
 PLAN.md
 node_modules
+.env

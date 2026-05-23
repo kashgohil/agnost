@@ -1,5 +1,5 @@
 // Per-conversation generation: invoke the LLM, attach timestamps, write the
-// file. Resumable — skips conversations whose output file already exists.
+// file. Resumable - skips conversations whose output file already exists.
 
 import { createHash } from "node:crypto";
 import { existsSync, writeFileSync } from "node:fs";

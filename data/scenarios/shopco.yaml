@@ -18,7 +18,7 @@ tools:
     failure_rules:
       - condition: order_age_days > 90
         outcome: empty_result
-        note: Silent failure — empty payload, no error. Drives drop-off mode.
+        note: Silent failure - empty payload, no error. Drives drop-off mode.
       - condition: malformed_order_id
         outcome: error
 
@@ -60,7 +60,6 @@ time_window:
 # spread across week_distribution. Skeletons are hand-written backbones; the
 # generator expands each skeleton via LLM with surface variation.
 failure_modes:
-
   - id: refund_delay_outside_window
     target_count: 110
     expected_insight_type: complaint
@@ -125,8 +124,8 @@ failure_modes:
   - id: bulk_export_feature_gap
     target_count: 70
     expected_insight_type: feature_gap
-    expected_attributed_cause: null  # No tool — this IS the point.
-    # Emerges only in later weeks — simulates a rising feature request.
+    expected_attributed_cause: null # No tool - this IS the point.
+    # Emerges only in later weeks - simulates a rising feature request.
     week_distribution: [0, 0, 0, 15, 25, 30]
     skeletons:
       - user_goal: export_order_history
@@ -141,7 +140,7 @@ failure_modes:
           - "download as CSV"
           - "for my accountant"
           - "Excel spreadsheet"
-        tool_call_pattern: []  # No tool calls — capability gap.
+        tool_call_pattern: [] # No tool calls - capability gap.
 
       - user_goal: export_order_history
         narrative: >
@@ -161,7 +160,7 @@ failure_modes:
     expected_attributed_cause:
       tool: update_shipping_address
       failure_signature: post_dispatch
-    # Flat — chronic friction, not emerging.
+    # Flat - chronic friction, not emerging.
     week_distribution: [14, 13, 14, 13, 13, 13]
     skeletons:
       - user_goal: redirect_in_transit_package
@@ -169,7 +168,7 @@ failure_modes:
           User moved / made typo / wants package sent elsewhere. Tool rejects
           because order already dispatched. User retries with different framings
           ("can you just contact the courier?", "what if I pay extra?"). Repeated
-          turns on the same intent — drives is_repeat signal high.
+          turns on the same intent - drives is_repeat signal high.
         expected_user_sentiment: negative
         expected_end_reason: escalated
         key_phrases:
@@ -184,7 +183,7 @@ failure_modes:
             error_signature: post_dispatch
           - tool: update_shipping_address
             outcome: error
-            error_signature: post_dispatch  # User retries, agent retries.
+            error_signature: post_dispatch # User retries, agent retries.
 
   - id: lookup_silent_failure_dropoff
     target_count: 60
@@ -197,7 +196,7 @@ failure_modes:
       - user_goal: find_old_order
         narrative: >
           User asks about an order from 4+ months ago. lookup_order returns
-          empty (silent failure — no error, just no data). Agent says "I can't
+          empty (silent failure - no error, just no data). Agent says "I can't
           find that order" without explaining why. User tries once more, then
           drops off without resolution.
         expected_user_sentiment: negative
@@ -215,7 +214,7 @@ failure_modes:
   - id: discount_code_confusion
     target_count: 50
     expected_insight_type: friction
-    expected_attributed_cause: null  # Reasoning gap, not tool failure — tests that attribution can be null.
+    expected_attributed_cause: null # Reasoning gap, not tool failure - tests that attribution can be null.
     week_distribution: [8, 8, 9, 8, 9, 8]
     skeletons:
       - user_goal: understand_discount_rejection
@@ -229,11 +228,11 @@ failure_modes:
           - "my code isn't working"
           - "WELCOME20"
           - "it says invalid"
-        tool_call_pattern: []  # No relevant tool exists.
+        tool_call_pattern: [] # No relevant tool exists.
 
   - id: satisfied_baseline
     target_count: 130
-    expected_insight_type: null  # Should NOT surface as an actionable insight.
+    expected_insight_type: null # Should NOT surface as an actionable insight.
     expected_attributed_cause: null
     week_distribution: [22, 22, 22, 22, 21, 21]
     skeletons:

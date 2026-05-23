@@ -20,7 +20,7 @@ import { makeClient } from "./dataset/llm.ts";
 import { makeRng } from "./dataset/rng.ts";
 import { buildWorkList, loadScenario } from "./dataset/scenario.ts";
 
-const DEFAULT_MODEL = "openai/gpt-4o-mini";
+const DEFAULT_MODEL = "openai/gpt-4.1-mini";
 
 async function main() {
   const { values } = parseArgs({
@@ -30,12 +30,13 @@ async function main() {
       concurrency: { type: "string", default: "10" },
       seed: { type: "string", default: "42" },
       model: { type: "string", default: DEFAULT_MODEL },
+      limit: { type: "string" },
     },
   });
 
   if (!values.scenario || !values.out) {
     console.error(
-      "Usage: --scenario <path> --out <dir> [--concurrency N] [--seed N] [--model SLUG]",
+      "Usage: --scenario <path> --out <dir> [--concurrency N] [--seed N] [--model SLUG] [--limit N]",
     );
     process.exit(1);
   }
@@ -51,7 +52,22 @@ async function main() {
 
   const rng = makeRng(Number(values.seed));
   const windowStart = new Date(`${scenario.time_window.start}T00:00:00.000Z`);
-  const workList = buildWorkList(scenario, rng);
+  let workList = buildWorkList(scenario, rng);
+  const fullSize = workList.length;
+
+  if (values.limit) {
+    const n = Number(values.limit);
+    if (!Number.isFinite(n) || n <= 0) {
+      console.error(
+        `--limit must be a positive integer (got: ${values.limit})`,
+      );
+      process.exit(1);
+    }
+    workList = workList.slice(0, n);
+    console.error(
+      `[limit] generating first ${workList.length} of ${fullSize} conversations`,
+    );
+  }
 
   const client = makeClient(apiKey);
   const sem = new Semaphore(Number(values.concurrency));
