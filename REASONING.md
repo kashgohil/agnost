@@ -137,9 +137,10 @@ These are the conversations the insight was derived from. Ship a fix → re-run 
 Honest about the rough edges I'd revisit before shipping this for real:
 
 - **Cross-conversation intent canonicalization is implicit.** Each conversation is scored independently, so `refund_old_order` and `request_refund` from different conversations don't merge until embedding-time. The classify-then-cluster bet pays out at the clustering step, but a hybrid "here are the top-N known intents, reuse them if applicable" pre-pass would tighten it further. Logged as a follow-up.
-- **Filler intents (`provide_order_id`, `acknowledge`) get promoted to clusters** by the noise-promotion fix because they have high turn count. They're conversational glue, not topics. A small filler-intent allowlist would suppress them.
+- **Aggregations live in TS, not SQL.** The per-cluster pipeline in `aggregate.ts` uses Drizzle's `selectDistinct` and aggregates in Node memory rather than pushing `GROUP BY` into Postgres. Trade: end-to-end type safety + readability vs. database efficiency. At our scale this is fine; at ~50K+ conversations I'd push the heavy GROUP BY back into the DB via CTEs and accept the type cast at the boundary.
 - **`min_cluster_size = 5` is a guess.** Calibrating against ground-truth labels (which we generate during dataset synthesis but don't currently use for evaluation) would let me defend the value rather than picking it.
 - **Single intent per turn** loses signal when a user does two things in one message. Multi-intent extraction would help.
+- **Non-topic intent filter is a regex denylist.** `shouldSurfaceCluster` suppresses clusters whose dominant intent matches a fixed pattern set (`acknowledge`, `provide_*`, `escalation_request`, ...). Works for known filler patterns; would miss novel ones. A learned classifier or a "must have a verb+object indicating a goal" check would scale better.
 
 ---
 
