@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parseArgs } from "node:util";
 
-import { Semaphore } from "./dataset/concurrency.ts";
+import { Semaphore } from "../src/lib/concurrency.ts";
 import { conversationId, generateOne } from "./dataset/generate.ts";
 import { makeClient } from "./dataset/llm.ts";
 import { makeRng } from "./dataset/rng.ts";
