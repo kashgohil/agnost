@@ -10,6 +10,8 @@ export type Insight = {
   tags: string[];
   taxonomy_version: number;
   headline: string;
+  recommendation: string;
+  key_observation: string | null;
   volume_pct: number;
   conversation_count: number;
   sentiment_avg: number;
