@@ -1,5 +1,7 @@
 .claude
 PLAN.md
 node_modules
+dist
 .env
 data/conversations/**
+.next
