@@ -1,5 +1,12 @@
 // Env var loader. Bun auto-loads .env into process.env; this module just
-// asserts what's required and exposes a typed config object.
+// surfaces what's available with a clear distinction between what's required
+// at boot vs what's only needed when a specific pipeline stage runs.
+//
+// DATABASE_URL is required at boot (every route touches Postgres).
+// OPENROUTER_API_KEY is NOT required at boot — only LLM-calling stages need
+// it. Callers (openrouter() factory, scripts) enforce the requirement at
+// call time. This keeps GET /health and read-only routes bootable without
+// an LLM key, which matters for reviewer/CI ergonomics.
 
 function required(name: string): string {
   const v = process.env[name];
@@ -8,7 +15,9 @@ function required(name: string): string {
 }
 
 export const config = {
-  openrouterApiKey: required("OPENROUTER_API_KEY"),
+  // Optional at boot. The openrouter() factory throws a clear error if
+  // it's actually needed and missing.
+  openrouterApiKey: process.env.OPENROUTER_API_KEY ?? "",
   databaseUrl: required("DATABASE_URL"),
   port: Number(process.env.PORT ?? 3000),
   // Per-pipeline-stage model defaults, overridable via env or CLI flag.
