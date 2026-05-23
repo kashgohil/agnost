@@ -202,12 +202,23 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     arr.push(r);
     grouped.set(r.cluster_id, arr);
   }
+  // Thresholds: we want attribution only when a tool failure is genuinely the
+  // story of the cluster — not when *some* refund tool fails in *some*
+  // conversations that happen to overlap. Require:
+  //  - >= 10 calls total to that tool within cluster conversations
+  //  - failure rate >= 0.5
+  // Otherwise, no attribution. Positive-sentiment clusters get further
+  // filtered downstream (a happy cluster shouldn't be "attributed" to a
+  // tool that incidentally fails for some unrelated reason).
+  const MIN_CALLS = 10;
+  const MIN_FAILURE_RATE = 0.5;
   for (const [clusterId, rows] of grouped) {
     const candidates = rows
-      .filter((r) => r.total_calls >= 5)
+      .filter((r) => r.total_calls >= MIN_CALLS)
       .map((r) => ({ tool: r.tool_name, failure_rate: r.failed_calls / r.total_calls }))
+      .filter((c) => c.failure_rate >= MIN_FAILURE_RATE)
       .sort((a, b) => b.failure_rate - a.failure_rate);
-    if (candidates.length > 0 && candidates[0]!.failure_rate > 0) {
+    if (candidates.length > 0) {
       attributedCauseByCluster.set(clusterId, candidates[0]!);
     }
   }
@@ -234,9 +245,38 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     examplesByCluster.set(r.cluster_id, arr);
   }
 
+  // Sample user messages per cluster — used by the content generator to ground
+  // recommendations in actual conversation content, not just aggregates.
+  const SAMPLE_MESSAGES_PER_CLUSTER = 8;
+  const sampleMsgRows = await db.execute<{ cluster_id: string; content: string }>(sql`
+    SELECT cluster_id, content FROM (
+      SELECT
+        i.cluster_id,
+        t.content,
+        row_number() OVER (PARTITION BY i.cluster_id ORDER BY random()) AS rn
+      FROM ${schema.intents} i
+      JOIN ${schema.turnSignals} s ON s.intent = i.intent
+      JOIN ${schema.turns} t ON t.id = s.turn_id
+      WHERE i.cluster_id IS NOT NULL AND t.role = 'user' AND length(t.content) > 8
+    ) sub
+    WHERE rn <= ${SAMPLE_MESSAGES_PER_CLUSTER}
+  `);
+  const sampleMessagesByCluster = new Map<string, string[]>();
+  for (const r of sampleMsgRows) {
+    const arr = sampleMessagesByCluster.get(r.cluster_id) ?? [];
+    arr.push(r.content);
+    sampleMessagesByCluster.set(r.cluster_id, arr);
+  }
+
   return clusters.map((c) => {
     const core = coreByCluster.get(c.id);
     const toolStats = toolCallStatsByCluster.get(c.id);
+    const sentimentAvg = core?.sentimentAvg ?? 0;
+    // Don't attribute a failure cause to a positive-sentiment cluster. A
+    // happy cluster sharing some conversations with a failing tool is
+    // coincidence, not causation.
+    const attributedCause =
+      sentimentAvg < 0 ? (attributedCauseByCluster.get(c.id) ?? null) : null;
     return {
       cluster_id: c.id,
       cluster_label: c.label,
@@ -250,9 +290,10 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
       is_repeat_rate: core?.isRepeatRate ?? 0,
       end_reason_distribution: endReasonByCluster.get(c.id) ?? {},
       marker_distribution: markerByCluster.get(c.id) ?? {},
-      attributed_cause: attributedCauseByCluster.get(c.id) ?? null,
+      attributed_cause: attributedCause,
       avg_latency_ms: toolStats?.avg_latency_ms ?? 0,
       example_conversation_ids: examplesByCluster.get(c.id) ?? [],
+      sample_messages: sampleMessagesByCluster.get(c.id) ?? [],
     };
   });
 }
