@@ -7,6 +7,8 @@
     "dev": "bun --watch src/server/index.ts",
     "start": "bun src/server/index.ts",
     "generate": "bun scripts/generate-dataset.ts",
+    "ingest": "bun scripts/ingest-dataset.ts",
+    "extract-signals": "bun scripts/extract-signals.ts",
     "db:generate": "bun drizzle-kit generate",
     "db:migrate": "bun drizzle-kit migrate",
     "db:studio": "bun drizzle-kit studio"
