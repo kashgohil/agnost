@@ -5,10 +5,12 @@ import { Elysia } from "elysia";
 
 import { config } from "../config.ts";
 import { ingestRoutes } from "./ingest/route.ts";
+import { insightsRoutes } from "./insights/route.ts";
 
 export const app = new Elysia()
   .get("/health", () => ({ status: "ok" }))
   .use(ingestRoutes)
+  .use(insightsRoutes)
   .listen(config.port);
 
 console.log(`listening on http://localhost:${config.port}`);
