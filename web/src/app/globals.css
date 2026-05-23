@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/* Quiet design tokens. Neutral palette, no decorative accents. */
+
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #111111;
+  --color-paper: #fafafa;
+  --color-ink: #111111;
+  --color-ink-soft: #555555;
+  --color-ink-mute: #8a8a8a;
+  --color-rule: #ebebeb;
+  --color-rule-soft: #f3f3f3;
+
+  /* Semantic only — used for sentiment polarity, not decoration. */
+  --color-positive: #2f7a4d;
+  --color-negative: #b13030;
+  --color-attention: #1a1a1a;
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-background: #0e0e0e;
+    --color-foreground: #ededed;
+    --color-paper: #161616;
+    --color-ink: #ededed;
+    --color-ink-soft: #b4b4b4;
+    --color-ink-mute: #6e6e6e;
+    --color-rule: #232323;
+    --color-rule-soft: #1a1a1a;
+    --color-positive: #5da981;
+    --color-negative: #d96b6b;
+    --color-attention: #ededed;
+  }
+}
+
+html {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: var(--color-ink);
+  color: var(--color-background);
+}
+
+a {
+  color: inherit;
+}
+
+/* Radix Collapsible animations. */
+@keyframes collapsible-down {
+  from { height: 0; }
+  to { height: var(--radix-collapsible-content-height); }
+}
+@keyframes collapsible-up {
+  from { height: var(--radix-collapsible-content-height); }
+  to { height: 0; }
+}
+[data-radix-collapsible-content] {
+  overflow: hidden;
+}
+[data-radix-collapsible-content][data-state="open"] {
+  animation: collapsible-down 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-radix-collapsible-content][data-state="closed"] {
+  animation: collapsible-up 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-radix-select-content] {
+  animation: fade-in 120ms ease-out;
+}
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
