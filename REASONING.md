@@ -47,8 +47,11 @@ Next.js UI: insights list, detail, clusters scatter, eval-set drawer
 Instead: an LLM extracts a **canonical intent string** per user turn (`refund_old_order`, `export_order_history`, snake_case verb-noun, 2-4 words). Those normalized strings get embedded and clustered. Same goal → same string → one cluster by construction.
 
 **Rejected**: pure embedding clustering of raw messages. Noisier, harder to label, drifts across model versions.
-**Tradeoff**: depends on LLM canonicalization quality. We caught one real consequence — when canonicalization is *too* consistent, a dominant concept becomes one singleton intent string, and HDBSCAN drops singletons as noise. Fix: post-HDBSCAN noise promotion (any noise intent representing ≥15 user turns gets promoted to its own single-intent cluster).
-**What's left on the table**: per-message embedding precision; intents that genuinely have multiple meanings (we collapse them).
+**Two consequences we caught and fixed**:
+1. *Singleton noise.* When canonicalization is *too* consistent, a dominant concept (e.g., 314 turns all labeled `export_order_history`) becomes one point in clustering space, and HDBSCAN drops singletons as noise. Fix: post-HDBSCAN noise promotion — any noise intent representing ≥15 user turns gets promoted to its own single-intent cluster.
+2. *Filler intents surfacing as "insights".* Conversational glue like `provide_order_id`, `acknowledge`, `escalation_request` get promoted by rule #1 but aren't PM-actionable topics. Fix: `shouldSurfaceCluster` filter — a regex denylist of non-topic intent patterns plus a "must have some signal" check (negative sentiment OR drop-off OR escalation OR attributed cause OR capability gap). Suppressed clusters still exist in the DB and appear on the `/clusters` scatter; they just don't produce insights.
+
+**What's left on the table**: per-message embedding precision; intents that genuinely have multiple meanings (we collapse them); the filler denylist is regex-based and would miss novel filler patterns.
 
 ### 2. HDBSCAN + UMAP via Python, everything else TypeScript
 
