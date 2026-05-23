@@ -42,18 +42,20 @@ export async function runClusteringPipeline(opts: {
     min_samples: opts.minSamples,
   });
 
-  // Group by HDBSCAN cluster label. -1 is noise — don't persist as a real cluster.
+  // Split assignments: -1 → noise (kept around for the Clusters view scatter),
+  // everything else → real clusters.
   const grouped = new Map<number, IntentClusterAssignment[]>();
-  let noise = 0;
+  const noisePoints: IntentClusterAssignment[] = [];
   for (const a of assignments) {
     if (a.label === -1) {
-      noise++;
+      noisePoints.push(a);
       continue;
     }
     const arr = grouped.get(a.label) ?? [];
     arr.push(a);
     grouped.set(a.label, arr);
   }
+  const noise = noisePoints.length;
 
   const sortedLabels = Array.from(grouped.keys()).sort((a, b) => a - b);
 
@@ -75,7 +77,7 @@ export async function runClusteringPipeline(opts: {
   );
 
   log("persist");
-  await persistClusters(labeled);
+  await persistClusters(labeled, noisePoints);
 
   return {
     intents_total: sync.total,

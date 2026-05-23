@@ -18,6 +18,7 @@ export type IntentClusterAssignment = {
   intent: string;
   label: number; // -1 for noise, otherwise the HDBSCAN cluster id (small integer)
   probability: number;
+  position: [number, number]; // 2D UMAP projection
 };
 
 export async function runClustering(
@@ -62,7 +63,7 @@ export async function runClustering(
     );
   }
 
-  let parsed: { labels: number[]; probabilities: number[] };
+  let parsed: { labels: number[]; probabilities: number[]; positions: [number, number][] };
   try {
     parsed = JSON.parse(stdoutText);
   } catch (err) {
@@ -71,9 +72,13 @@ export async function runClustering(
     );
   }
 
-  if (parsed.labels.length !== rows.length || parsed.probabilities.length !== rows.length) {
+  if (
+    parsed.labels.length !== rows.length ||
+    parsed.probabilities.length !== rows.length ||
+    parsed.positions.length !== rows.length
+  ) {
     throw new Error(
-      `cluster.py output length mismatch: ${rows.length} intents in, ${parsed.labels.length} labels out`,
+      `cluster.py output length mismatch: ${rows.length} intents in, ${parsed.labels.length} labels / ${parsed.positions.length} positions out`,
     );
   }
 
@@ -81,5 +86,6 @@ export async function runClustering(
     intent: r.intent,
     label: parsed.labels[i]!,
     probability: parsed.probabilities[i]!,
+    position: parsed.positions[i]!,
   }));
 }

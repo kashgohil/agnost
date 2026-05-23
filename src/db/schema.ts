@@ -163,6 +163,10 @@ export const intents = pgTable(
     clusterId: text("cluster_id").references(() => clusters.id, { onDelete: "set null" }),
     probability: doublePrecision("probability"),
     clusteredAt: timestamp("clustered_at", { withTimezone: true }),
+    // 2D UMAP projection of the embedding, used by the Clusters view scatter.
+    // Computed during clustering; nulled if the run skips UMAP for any reason.
+    positionX: doublePrecision("position_x"),
+    positionY: doublePrecision("position_y"),
   },
   (t) => [
     index("intents_cluster_id_idx").on(t.clusterId),
