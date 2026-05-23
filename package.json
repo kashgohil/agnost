@@ -9,6 +9,7 @@
     "generate": "bun scripts/generate-dataset.ts",
     "ingest": "bun scripts/ingest-dataset.ts",
     "extract-signals": "bun scripts/extract-signals.ts",
+    "cluster": "bun scripts/cluster.ts",
     "db:generate": "bun drizzle-kit generate",
     "db:migrate": "bun drizzle-kit migrate",
     "db:studio": "bun drizzle-kit studio"
