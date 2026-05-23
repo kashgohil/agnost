@@ -7,10 +7,11 @@ import { Semaphore } from "../lib/concurrency.ts";
 import { aggregateAllClusters } from "./aggregate.ts";
 import { generateContent } from "./content.ts";
 import { persistInsights, type InsightRecord } from "./persist.ts";
-import { TAXONOMY_VERSION, classifyCluster } from "./typology.ts";
+import { TAXONOMY_VERSION, classifyCluster, shouldSurfaceCluster } from "./typology.ts";
 
 export type InsightsStats = {
   clusters_processed: number;
+  clusters_suppressed: number;
   insights_written: number;
   uncategorized_count: number;
   uncategorized_rate: number;
@@ -30,6 +31,7 @@ export async function runInsightsPipeline(opts: {
   if (metrics.length === 0) {
     return {
       clusters_processed: 0,
+      clusters_suppressed: 0,
       insights_written: 0,
       uncategorized_count: 0,
       uncategorized_rate: 0,
@@ -38,7 +40,11 @@ export async function runInsightsPipeline(opts: {
   }
 
   log("classify", `${metrics.length} clusters`);
-  const classified = metrics.map((m) => ({ metrics: m, tags: classifyCluster(m) }));
+  const surfacedMetrics = metrics.filter(shouldSurfaceCluster);
+  const suppressed = metrics.length - surfacedMetrics.length;
+  if (suppressed > 0) log("suppress", `${suppressed} non-topic cluster(s)`);
+
+  const classified = surfacedMetrics.map((m) => ({ metrics: m, tags: classifyCluster(m) }));
   const uncategorized = classified.filter((c) => c.tags.problem === "uncategorized").length;
 
   log("content");
@@ -78,6 +84,7 @@ export async function runInsightsPipeline(opts: {
 
   return {
     clusters_processed: metrics.length,
+    clusters_suppressed: suppressed,
     insights_written: insights.length,
     uncategorized_count: uncategorized,
     uncategorized_rate: metrics.length > 0 ? uncategorized / metrics.length : 0,
