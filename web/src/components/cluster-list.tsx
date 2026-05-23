@@ -32,22 +32,22 @@ export function ClusterList({
 }) {
   if (clusters.length === 0) {
     return (
-      <div className="py-12 text-center text-sm text-[var(--color-ink-mute)]">
+      <div className="text-ink-mute py-12 text-center text-sm">
         No clusters yet. Run <span className="font-mono">bun cluster</span>.
       </div>
     );
   }
 
   return (
-    <div className="border-t border-[var(--color-rule)]">
+    <div className="border-rule border-t">
       {clusters.map((c) => {
         const focused = focusedClusterId === c.id;
         return (
           <div
             key={c.id}
             className={cn(
-              "group cursor-pointer border-b border-[var(--color-rule)] py-5 transition-colors",
-              focused ? "bg-[var(--color-paper)]" : "hover:bg-[var(--color-paper)]",
+              "group border-rule cursor-pointer border-b py-5 transition-colors",
+              focused ? "bg-paper" : "hover:bg-paper",
             )}
             onClick={() => onFocus(focused ? null : c.id)}
           >
@@ -59,8 +59,8 @@ export function ClusterList({
 
               <div className="min-w-0 space-y-2">
                 <div className="flex items-baseline gap-3">
-                  <h3 className="text-base font-medium leading-snug">{c.label}</h3>
-                  <span className="font-mono text-xs text-[var(--color-ink-mute)]">
+                  <h3 className="text-base leading-snug font-medium">{c.label}</h3>
+                  <span className="text-ink-mute font-mono text-xs">
                     {c.id}
                   </span>
                 </div>
@@ -70,13 +70,13 @@ export function ClusterList({
                     {c.sample_intents.map((i) => (
                       <span
                         key={i}
-                        className="font-mono text-[11px] text-[var(--color-ink-soft)]"
+                        className="text-ink-soft font-mono text-[11px]"
                       >
                         {i}
                       </span>
                     )).reduce<React.ReactNode[]>((acc, el, i) => {
                       if (i > 0) acc.push(
-                        <span key={`sep-${i}`} className="text-[var(--color-ink-mute)]">·</span>,
+                        <span key={`sep-${i}`} className="text-ink-mute">·</span>,
                       );
                       acc.push(el);
                       return acc;
@@ -89,7 +89,7 @@ export function ClusterList({
                     {c.sample_messages.slice(0, 2).map((msg, i) => (
                       <div
                         key={i}
-                        className="line-clamp-1 text-sm text-[var(--color-ink-soft)]"
+                        className="text-ink-soft line-clamp-1 text-sm"
                       >
                         “{msg}”
                       </div>
@@ -100,18 +100,18 @@ export function ClusterList({
 
               <div className="text-right">
                 <div className="text-lg font-medium tabular-nums">{c.member_count}</div>
-                <div className="text-xs text-[var(--color-ink-mute)]">intents</div>
+                <div className="text-ink-mute text-xs">intents</div>
                 <div className="mt-2 text-xs">
                   {c.insight_id ? (
                     <Link
                       href={`/insights/${c.insight_id}`}
                       onClick={(e) => e.stopPropagation()}
-                      className="text-[var(--color-ink-soft)] underline-offset-2 hover:text-[var(--color-ink)] hover:underline"
+                      className="text-ink-soft hover:text-ink underline-offset-2 hover:underline"
                     >
                       View insight →
                     </Link>
                   ) : (
-                    <span className="text-[var(--color-ink-mute)]">Not surfaced</span>
+                    <span className="text-ink-mute">Not surfaced</span>
                   )}
                 </div>
               </div>

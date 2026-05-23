@@ -23,8 +23,8 @@ export function PageNav() {
             className={cn(
               "transition-colors",
               active
-                ? "text-[var(--color-ink)]"
-                : "text-[var(--color-ink-mute)] hover:text-[var(--color-ink)]",
+                ? "text-ink"
+                : "text-ink-mute hover:text-ink",
             )}
           >
             {link.label}

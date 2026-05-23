@@ -19,7 +19,7 @@ export default async function InsightsPage({
       <PageNav />
       <div className="flex items-baseline justify-between">
         <h1 className="text-xl font-medium tracking-tight">Insights</h1>
-        <div className="text-xs text-[var(--color-ink-mute)]">
+        <div className="text-ink-mute text-xs">
           {total} {total === 1 ? "insight" : "insights"}
           {taxonomy_version !== null && ` · taxonomy v${taxonomy_version}`}
         </div>
@@ -28,11 +28,11 @@ export default async function InsightsPage({
       <FilterBar />
 
       {insights.length === 0 ? (
-        <div className="border-t border-[var(--color-rule)] py-16 text-center text-sm text-[var(--color-ink-mute)]">
+        <div className="border-rule text-ink-mute border-t py-16 text-center text-sm">
           No insights match these filters.
         </div>
       ) : (
-        <div className="border-t border-[var(--color-rule)]">
+        <div className="border-rule border-t">
           {insights.map((i) => (
             <InsightListCard key={i.id} insight={i} />
           ))}

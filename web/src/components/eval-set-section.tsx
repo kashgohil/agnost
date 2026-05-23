@@ -24,20 +24,32 @@ export function EvalSetSection({ insightId }: { insightId: string }) {
   useEffect(() => {
     if (!opened) return;
     let cancelled = false;
-    setLoading(true);
-    setErr(null);
-    fetch(`/api/v1/insights/${insightId}/eval-set?limit=${PAGE_SIZE}&offset=${offset}`)
-      .then(async (r) => {
+
+    // State resets live inside the async closure so they don't sit in the
+    // synchronous body of the effect — keeps the react-hooks lint happy and
+    // makes the fetch lifecycle linear.
+    const run = async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const r = await fetch(
+          `/api/v1/insights/${insightId}/eval-set?limit=${PAGE_SIZE}&offset=${offset}`,
+        );
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return (await r.json()) as EvalSetResponse;
-      })
-      .then((data) => {
+        const data = (await r.json()) as EvalSetResponse;
         if (cancelled) return;
         setTotal(data.total);
-        setItems((prev) => (offset === 0 ? data.conversations : [...prev, ...data.conversations]));
-      })
-      .catch((e) => !cancelled && setErr((e as Error).message))
-      .finally(() => !cancelled && setLoading(false));
+        setItems((prev) =>
+          offset === 0 ? data.conversations : [...prev, ...data.conversations],
+        );
+      } catch (e) {
+        if (!cancelled) setErr((e as Error).message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void run();
     return () => {
       cancelled = true;
     };
@@ -53,21 +65,25 @@ export function EvalSetSection({ insightId }: { insightId: string }) {
 
   return (
     <div className="space-y-2">
-      {err && <div className="text-sm text-[var(--color-negative)]">Error: {err}</div>}
-      <div className="border-t border-[var(--color-rule)]">
+      {err && <div className="text-negative text-sm">Error: {err}</div>}
+      <div className="border-rule border-t">
         {items.map((c) => (
           <ConversationCard key={c.conversation_id} conv={c} />
         ))}
       </div>
-      {loading && <div className="py-2 text-xs text-[var(--color-ink-mute)]">Loading…</div>}
+      {loading && <div className="text-ink-mute py-2 text-xs">Loading…</div>}
       <div className="flex items-center gap-4 pt-2">
         {total !== null && items.length < total && !loading && (
-          <Button variant="outline" size="sm" onClick={() => setOffset(items.length)}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setOffset(items.length)}
+          >
             Load more
           </Button>
         )}
         {total !== null && (
-          <span className="text-xs text-[var(--color-ink-mute)]">
+          <span className="text-ink-mute text-xs">
             Showing {items.length} of {total}
           </span>
         )}
@@ -78,27 +94,27 @@ export function EvalSetSection({ insightId }: { insightId: string }) {
 
 function ConversationCard({ conv }: { conv: EvalSetConversation }) {
   return (
-    <Collapsible className="group border-b border-[var(--color-rule)]">
-      <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-3 py-3 text-left text-sm hover:bg-[var(--color-paper)]">
-        <ChevronRight className="h-3.5 w-3.5 text-[var(--color-ink-mute)] transition-transform group-data-[state=open]:rotate-90" />
-        <span className="font-mono text-xs text-[var(--color-ink-soft)]">
+    <Collapsible className="group border-rule border-b">
+      <CollapsibleTrigger className="hover:bg-paper flex w-full cursor-pointer items-center gap-3 py-3 text-left text-sm">
+        <ChevronRight className="text-ink-mute h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-90" />
+        <span className="text-ink-soft font-mono text-xs">
           {conv.conversation_id}
         </span>
-        <span className="text-xs text-[var(--color-ink-mute)]">
+        <span className="text-ink-mute text-xs">
           · {conv.end_reason.replaceAll("_", " ")} ·{" "}
           {new Date(conv.started_at).toLocaleDateString()}
         </span>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="space-y-3 py-4 pl-6 pr-4">
+        <div className="space-y-3 py-4 pr-4 pl-6">
           {conv.turns.map((t) => (
             <div key={t.turn_id} className="text-sm">
-              <div className="text-xs text-[var(--color-ink-mute)]">{t.role}</div>
-              <div className="mt-0.5 text-[var(--color-ink)]">{t.content}</div>
+              <div className="text-ink-mute text-xs">{t.role}</div>
+              <div className="text-ink mt-0.5">{t.content}</div>
               {t.tool_calls.map((tc) => (
                 <div
                   key={tc.tool_call_id}
-                  className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-[var(--color-ink-mute)]"
+                  className="text-ink-mute mt-1.5 flex flex-wrap items-center gap-2 text-xs"
                 >
                   <span className="font-mono">{tc.tool_name}</span>
                   <span

@@ -10,9 +10,9 @@ export function DistributionBars({
   const entries = Object.entries(data).sort((a, b) => b[1] - a[1]);
   return (
     <div>
-      <div className="mb-4 text-xs font-medium text-[var(--color-ink-soft)]">{title}</div>
+      <div className="text-ink-soft mb-4 text-xs font-medium">{title}</div>
       {entries.length === 0 ? (
-        <div className="text-sm text-[var(--color-ink-mute)]">No data</div>
+        <div className="text-ink-mute text-sm">No data</div>
       ) : (
         <div className="space-y-2.5">
           {entries.map(([label, value]) => {
@@ -20,17 +20,17 @@ export function DistributionBars({
             return (
               <div key={label} className="grid grid-cols-[1fr_auto] items-center gap-3 text-sm">
                 <div className="space-y-1.5">
-                  <div className="text-[13px] text-[var(--color-ink-soft)]">
+                  <div className="text-ink-soft text-[13px]">
                     {label.replaceAll("_", " ")}
                   </div>
-                  <div className="relative h-1 w-full overflow-hidden rounded-full bg-[var(--color-rule-soft)]">
+                  <div className="bg-rule-soft relative h-1 w-full overflow-hidden rounded-full">
                     <div
-                      className="absolute left-0 top-0 h-full rounded-full bg-[var(--color-ink)]"
+                      className="bg-ink absolute top-0 left-0 h-full rounded-full"
                       style={{ width: `${pct}%` }}
                     />
                   </div>
                 </div>
-                <div className="w-10 text-right text-sm tabular-nums text-[var(--color-ink-soft)]">
+                <div className="text-ink-soft w-10 text-right text-sm tabular-nums">
                   {pct.toFixed(0)}%
                 </div>
               </div>

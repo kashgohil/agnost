@@ -23,18 +23,18 @@ export default async function InsightDetail({
       <PageNav />
       <Link
         href="/"
-        className="inline-block text-xs text-[var(--color-ink-mute)] hover:text-[var(--color-ink)]"
+        className="text-ink-mute hover:text-ink inline-block text-xs"
       >
         ← All insights
       </Link>
 
       <header className="space-y-4">
         <TagBadges tags={insight.tags} />
-        <h1 className="text-3xl font-medium leading-tight tracking-tight">
+        <h1 className="text-3xl leading-tight font-medium tracking-tight">
           {insight.headline}
         </h1>
-        <div className="text-sm text-[var(--color-ink-mute)]">
-          Cluster <span className="text-[var(--color-ink-soft)]">{insight.cluster_label}</span>
+        <div className="text-ink-mute text-sm">
+          Cluster <span className="text-ink-soft">{insight.cluster_label}</span>
           {" · "}
           Generated {new Date(insight.generated_at).toLocaleDateString()}
           {" · "}
@@ -42,7 +42,7 @@ export default async function InsightDetail({
         </div>
       </header>
 
-      <section className="grid grid-cols-2 gap-x-8 gap-y-6 border-y border-[var(--color-rule)] py-6 md:grid-cols-4">
+      <section className="border-rule grid grid-cols-2 gap-x-8 gap-y-6 border-y py-6 md:grid-cols-4">
         <Stat label="Volume" value={`${Math.round(insight.volume_pct * 100)}%`}
               sub={`${insight.conversation_count} conversations`} />
         <Stat label="Sentiment" value={<SentimentIndicator value={insight.sentiment_avg} size="lg" />} />
@@ -53,7 +53,7 @@ export default async function InsightDetail({
               data={insight.weekly_volume}
               width={140}
               height={36}
-              className="text-[var(--color-ink)]"
+              className="text-ink"
             />
           }
         />
@@ -63,12 +63,12 @@ export default async function InsightDetail({
             insight.attributed_cause ? (
               <div className="space-y-1">
                 <div className="font-mono text-sm">{insight.attributed_cause.tool}</div>
-                <div className="text-sm text-[var(--color-ink-soft)]">
+                <div className="text-ink-soft text-sm">
                   {Math.round(insight.attributed_cause.failure_rate * 100)}% failure rate
                 </div>
               </div>
             ) : (
-              <span className="text-sm text-[var(--color-ink-mute)]">No single tool</span>
+              <span className="text-ink-mute text-sm">No single tool</span>
             )
           }
         />
@@ -79,10 +79,10 @@ export default async function InsightDetail({
         <DistributionBars title="Conversation outcomes" data={insight.end_reason_distribution} />
       </section>
 
-      <section className="space-y-4 border-t border-[var(--color-rule)] pt-8">
+      <section className="border-rule space-y-4 border-t pt-8">
         <div>
           <h2 className="text-lg font-medium">Conversation set</h2>
-          <p className="mt-1 max-w-xl text-sm text-[var(--color-ink-soft)]">
+          <p className="text-ink-soft mt-1 max-w-xl text-sm">
             Conversations that produced this insight. Useful as an eval set when shipping a fix.
           </p>
         </div>
@@ -103,9 +103,9 @@ function Stat({
 }) {
   return (
     <div className="space-y-1.5">
-      <div className="text-xs text-[var(--color-ink-mute)]">{label}</div>
+      <div className="text-ink-mute text-xs">{label}</div>
       <div className="text-2xl font-medium tabular-nums">{value}</div>
-      {sub && <div className="text-xs text-[var(--color-ink-soft)]">{sub}</div>}
+      {sub && <div className="text-ink-soft text-xs">{sub}</div>}
     </div>
   );
 }

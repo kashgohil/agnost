@@ -13,7 +13,7 @@ export default async function ClustersPage() {
 
       <div className="flex items-baseline justify-between">
         <h1 className="text-xl font-medium tracking-tight">Clusters</h1>
-        <div className="text-xs text-[var(--color-ink-mute)]">
+        <div className="text-ink-mute text-xs">
           {data.clusters.length} {data.clusters.length === 1 ? "cluster" : "clusters"}
           {" · "}
           {surfaced} surfaced as insights
@@ -22,7 +22,7 @@ export default async function ClustersPage() {
         </div>
       </div>
 
-      <p className="max-w-2xl text-sm text-[var(--color-ink-soft)]">
+      <p className="text-ink-soft max-w-2xl text-sm">
         Every group HDBSCAN found, including those that didn&apos;t cross insight thresholds.
         Each point on the scatter is one intent string projected to 2D via UMAP — same color
         means same cluster. Grey points are noise (intents too unique to group).

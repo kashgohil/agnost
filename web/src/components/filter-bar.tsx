@@ -55,7 +55,7 @@ export function FilterBar() {
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
         <div className="flex items-center gap-3">
-          <span className="text-xs text-[var(--color-ink-soft)]">Sort</span>
+          <span className="text-ink-soft text-xs">Sort</span>
           <Select value={sort} onValueChange={(v) => update((p) => p.set("sort", v))}>
             <SelectTrigger className="min-w-[180px]">
               <SelectValue />
@@ -79,13 +79,13 @@ export function FilterBar() {
               })
             }
           />
-          <span className="text-xs text-[var(--color-ink-soft)]">Include uncategorized</span>
+          <span className="text-ink-soft text-xs">Include uncategorized</span>
         </label>
         {hasFilters && (
           <button
             type="button"
             onClick={() => startTransition(() => router.replace("/"))}
-            className="ml-auto text-xs text-[var(--color-ink-mute)] underline-offset-2 hover:text-[var(--color-ink)] hover:underline"
+            className="text-ink-mute hover:text-ink ml-auto text-xs underline-offset-2 hover:underline"
           >
             Clear
           </button>
@@ -108,7 +108,7 @@ function FilterRow({
 }) {
   return (
     <div className="flex flex-wrap items-baseline gap-2">
-      <div className="w-24 shrink-0 text-xs text-[var(--color-ink-mute)]">{title}</div>
+      <div className="text-ink-mute w-24 shrink-0 text-xs">{title}</div>
       <div className="flex flex-wrap gap-1.5">
         {tags.map((tag) => {
           const isActive = active.has(tag);
@@ -120,8 +120,8 @@ function FilterRow({
               className={cn(
                 "rounded-full border px-2.5 py-0.5 text-xs transition-colors",
                 isActive
-                  ? "border-[var(--color-ink)] bg-[var(--color-ink)] text-[var(--color-background)]"
-                  : "border-[var(--color-rule)] text-[var(--color-ink-soft)] hover:border-[var(--color-ink)] hover:text-[var(--color-ink)]",
+                  ? "border-ink bg-ink text-background"
+                  : "border-rule text-ink-soft hover:border-ink hover:text-ink",
               )}
             >
               {tag.replaceAll("_", " ")}

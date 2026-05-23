@@ -67,7 +67,7 @@ export function ClusterScatter({
     <div className="relative">
       <svg
         viewBox={`0 0 ${W} ${H}`}
-        className="w-full rounded-md border border-[var(--color-rule)] bg-[var(--color-paper)]"
+        className="border-rule bg-paper w-full rounded-md border"
         role="img"
         aria-label="Cluster scatter plot"
       >
@@ -123,14 +123,14 @@ export function ClusterScatter({
 
       {/* Tooltip */}
       {hovered && (
-        <div className="pointer-events-none absolute left-3 top-3 rounded-md border border-[var(--color-rule)] bg-[var(--color-background)] px-2.5 py-1.5 text-xs shadow-sm">
+        <div className="border-rule bg-background pointer-events-none absolute top-3 left-3 rounded-md border px-2.5 py-1.5 text-xs shadow-sm">
           <div className="font-mono">{hovered.intent}</div>
           {hovered.cluster_id ? (
-            <div className="text-[var(--color-ink-mute)]">
+            <div className="text-ink-mute">
               {labelById.get(hovered.cluster_id) ?? hovered.cluster_id}
             </div>
           ) : (
-            <div className="text-[var(--color-ink-mute)]">Noise — not assigned</div>
+            <div className="text-ink-mute">Noise — not assigned</div>
           )}
         </div>
       )}
@@ -138,7 +138,7 @@ export function ClusterScatter({
       {focusedClusterId && (
         <button
           onClick={() => onFocus(null)}
-          className="absolute right-3 top-3 rounded-md border border-[var(--color-rule)] bg-[var(--color-background)] px-2 py-1 text-xs text-[var(--color-ink-soft)] hover:text-[var(--color-ink)]"
+          className="border-rule bg-background text-ink-soft hover:text-ink absolute top-3 right-3 rounded-md border px-2 py-1 text-xs"
         >
           Reset focus
         </button>
