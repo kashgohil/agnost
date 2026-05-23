@@ -3,7 +3,7 @@
 // can show member intents. Includes "has insight?" flag so the UI can show
 // which clusters did/didn't surface as actionable problems.
 
-import { desc, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { db, schema } from "../../db/client.ts";
 
@@ -81,52 +81,41 @@ export async function getClustersOverview(): Promise<ClustersResponse> {
   const insightByCluster = new Map(insightRows.map((r) => [r.clusterId, r]));
 
   // 4. Sample intents per cluster — first N alphabetically (stable across runs).
-  const sampleIntentsRows = await db.execute<{
-    cluster_id: string;
-    intent: string;
-    rn: number;
-  }>(sql`
-    SELECT cluster_id, intent, rn FROM (
-      SELECT
-        cluster_id,
-        intent,
-        row_number() OVER (PARTITION BY cluster_id ORDER BY intent) AS rn
-      FROM ${schema.intents}
-      WHERE cluster_id IS NOT NULL
-    ) sub
-    WHERE rn <= ${SAMPLES_PER_CLUSTER}
-  `);
+  const sampleIntentsRows = await db
+    .select({
+      clusterId: schema.intents.clusterId,
+      intent: schema.intents.intent,
+    })
+    .from(schema.intents)
+    .where(isNotNull(schema.intents.clusterId))
+    .orderBy(asc(schema.intents.clusterId), asc(schema.intents.intent));
   const sampleIntentsByCluster = new Map<string, string[]>();
   for (const r of sampleIntentsRows) {
-    const arr = sampleIntentsByCluster.get(r.cluster_id) ?? [];
+    const arr = sampleIntentsByCluster.get(r.clusterId!) ?? [];
+    if (arr.length >= SAMPLES_PER_CLUSTER) continue;
     arr.push(r.intent);
-    sampleIntentsByCluster.set(r.cluster_id, arr);
+    sampleIntentsByCluster.set(r.clusterId!, arr);
   }
 
-  // 5. Sample user messages per cluster — one per intent, random across the
-  // cluster, capped at SAMPLES_PER_CLUSTER total to keep payload small.
-  const sampleMessagesRows = await db.execute<{
-    cluster_id: string;
-    content: string;
-    rn: number;
-  }>(sql`
-    SELECT cluster_id, content, rn FROM (
-      SELECT
-        i.cluster_id,
-        t.content,
-        row_number() OVER (PARTITION BY i.cluster_id ORDER BY random()) AS rn
-      FROM ${schema.intents} i
-      JOIN ${schema.turnSignals} s ON s.intent = i.intent
-      JOIN ${schema.turns} t ON t.id = s.turn_id
-      WHERE i.cluster_id IS NOT NULL
-    ) sub
-    WHERE rn <= ${SAMPLES_PER_CLUSTER}
-  `);
+  // 5. Sample user messages per cluster. Stable ordering keeps the endpoint
+  // deterministic; the cap is applied in TS to avoid raw window-function SQL.
+  const sampleMessagesRows = await db
+    .select({
+      clusterId: schema.intents.clusterId,
+      content: schema.turns.content,
+      turnIndex: schema.turns.turnIndex,
+    })
+    .from(schema.intents)
+    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
+    .innerJoin(schema.turns, eq(schema.turns.id, schema.turnSignals.turnId))
+    .where(and(isNotNull(schema.intents.clusterId), eq(schema.turns.role, "user")))
+    .orderBy(asc(schema.intents.clusterId), asc(schema.turns.conversationId), asc(schema.turns.turnIndex));
   const sampleMessagesByCluster = new Map<string, string[]>();
   for (const r of sampleMessagesRows) {
-    const arr = sampleMessagesByCluster.get(r.cluster_id) ?? [];
+    const arr = sampleMessagesByCluster.get(r.clusterId!) ?? [];
+    if (arr.length >= SAMPLES_PER_CLUSTER) continue;
     arr.push(r.content);
-    sampleMessagesByCluster.set(r.cluster_id, arr);
+    sampleMessagesByCluster.set(r.clusterId!, arr);
   }
 
   const clusters: ClusterRow[] = clusterRows.map((c) => {
