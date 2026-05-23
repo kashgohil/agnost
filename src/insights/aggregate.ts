@@ -4,9 +4,11 @@
 // All filters are run-time-safe (no string interpolation). The cluster_id and
 // tool_name columns are short text so the GROUP BY traffic is light.
 
-import { asc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import { db, schema } from "../db/client.ts";
+import { pickStableShuffled } from "../lib/sampling.ts";
 import type { ClusterMetrics } from "./typology.ts";
 
 // Inlined preview examples on the insight row — enough to show phrasing
@@ -128,80 +130,95 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     for (const k of Object.keys(dist)) dist[k] = dist[k]! / turnCount;
   }
 
-  // Per-cluster tool call counts + failure rates. The DISTINCT CTE is critical:
+  // Per-cluster tool call counts + failure rates. The DISTINCT query is critical:
   // a conversation with N user turns in the cluster would otherwise count each
   // tool call N times. The cluster→tool_call mapping must be deduplicated first.
-  const toolRows = await db.execute<{
-    cluster_id: string;
-    tool_name: string;
-    total_calls: number;
-    failed_calls: number;
-  }>(sql`
-    WITH cluster_tool_calls AS (
-      SELECT DISTINCT i.cluster_id, tc.id AS tool_call_id, tc.tool_name, tc.status
-      FROM ${schema.intents} i
-      JOIN ${schema.turnSignals} s ON s.intent = i.intent
-      JOIN ${schema.turns} t ON t.id = s.turn_id
-      JOIN ${schema.turns} t2 ON t2.conversation_id = t.conversation_id
-      JOIN ${schema.toolCalls} tc ON tc.turn_id = t2.id
-      WHERE i.cluster_id IS NOT NULL
-    )
-    SELECT
-      cluster_id,
-      tool_name,
-      count(*)::int AS total_calls,
-      sum(case when status in ('error', 'empty_result') then 1 else 0 end)::int AS failed_calls
-    FROM cluster_tool_calls
-    GROUP BY cluster_id, tool_name
-  `);
+  const conversationTurns = alias(schema.turns, "conversation_turns");
+  const clusterToolCallRows = await db
+    .selectDistinct({
+      clusterId: schema.intents.clusterId,
+      conversationId: schema.turns.conversationId,
+      toolCallId: schema.toolCalls.id,
+      toolName: schema.toolCalls.toolName,
+      status: schema.toolCalls.status,
+      latencyMs: schema.toolCalls.latencyMs,
+    })
+    .from(schema.intents)
+    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
+    .innerJoin(schema.turns, eq(schema.turns.id, schema.turnSignals.turnId))
+    .innerJoin(conversationTurns, eq(conversationTurns.conversationId, schema.turns.conversationId))
+    .innerJoin(schema.toolCalls, eq(schema.toolCalls.turnId, conversationTurns.id))
+    .where(isNotNull(schema.intents.clusterId));
 
   // Per-cluster avg tool calls per conversation + avg latency.
   // Same multiplication risk — dedupe cluster→(conv, tool_call) first.
-  const toolCallCountRows = await db.execute<{
-    cluster_id: string;
-    avg_tool_calls: number;
-    avg_latency_ms: number;
-  }>(sql`
-    WITH cluster_convs AS (
-      SELECT DISTINCT i.cluster_id, t.conversation_id
-      FROM ${schema.intents} i
-      JOIN ${schema.turnSignals} s ON s.intent = i.intent
-      JOIN ${schema.turns} t ON t.id = s.turn_id
-      WHERE i.cluster_id IS NOT NULL
-    ),
-    per_conv AS (
-      SELECT
-        cc.cluster_id,
-        cc.conversation_id,
-        coalesce(count(tc.id), 0)::float AS tool_calls,
-        coalesce(avg(tc.latency_ms), 0)::float AS avg_latency
-      FROM cluster_convs cc
-      LEFT JOIN ${schema.turns} t2 ON t2.conversation_id = cc.conversation_id
-      LEFT JOIN ${schema.toolCalls} tc ON tc.turn_id = t2.id
-      GROUP BY cc.cluster_id, cc.conversation_id
-    )
-    SELECT
-      cluster_id,
-      avg(tool_calls)::float AS avg_tool_calls,
-      avg(avg_latency)::float AS avg_latency_ms
-    FROM per_conv
-    GROUP BY cluster_id
-  `);
-  const toolCallStatsByCluster = new Map(
-    toolCallCountRows.map((r) => [
-      r.cluster_id,
-      { avg_tool_calls: r.avg_tool_calls, avg_latency_ms: r.avg_latency_ms },
-    ]),
-  );
+  const clusterConvRows = await db
+    .selectDistinct({
+      clusterId: schema.intents.clusterId,
+      conversationId: schema.turns.conversationId,
+    })
+    .from(schema.intents)
+    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
+    .innerJoin(schema.turns, eq(schema.turns.id, schema.turnSignals.turnId))
+    .where(isNotNull(schema.intents.clusterId));
+
+  const perClusterConv = new Map<string, { clusterId: string; calls: number; latencySum: number }>();
+  for (const row of clusterConvRows) {
+    perClusterConv.set(`${row.clusterId!}:${row.conversationId}`, {
+      clusterId: row.clusterId!,
+      calls: 0,
+      latencySum: 0,
+    });
+  }
+  for (const row of clusterToolCallRows) {
+    const key = `${row.clusterId!}:${row.conversationId}`;
+    const entry = perClusterConv.get(key);
+    if (!entry) continue;
+    entry.calls++;
+    entry.latencySum += row.latencyMs;
+  }
+
+  const toolCallStatsByCluster = new Map<
+    string,
+    { avg_tool_calls: number; avg_latency_ms: number }
+  >();
+  const statsAcc = new Map<
+    string,
+    { convs: number; toolCalls: number; avgLatencySum: number }
+  >();
+  for (const entry of perClusterConv.values()) {
+    const acc = statsAcc.get(entry.clusterId) ?? {
+      convs: 0,
+      toolCalls: 0,
+      avgLatencySum: 0,
+    };
+    acc.convs++;
+    acc.toolCalls += entry.calls;
+    acc.avgLatencySum += entry.calls > 0 ? entry.latencySum / entry.calls : 0;
+    statsAcc.set(entry.clusterId, acc);
+  }
+  for (const [clusterId, acc] of statsAcc) {
+    toolCallStatsByCluster.set(clusterId, {
+      avg_tool_calls: acc.convs > 0 ? acc.toolCalls / acc.convs : 0,
+      avg_latency_ms: acc.convs > 0 ? acc.avgLatencySum / acc.convs : 0,
+    });
+  }
 
   // Attributed cause: top-failure tool per cluster (min 5 calls).
   const attributedCauseByCluster = new Map<string, { tool: string; failure_rate: number }>();
-  type ToolRow = { cluster_id: string; tool_name: string; total_calls: number; failed_calls: number };
-  const grouped = new Map<string, ToolRow[]>();
-  for (const r of toolRows) {
-    const arr = grouped.get(r.cluster_id) ?? [];
-    arr.push(r);
-    grouped.set(r.cluster_id, arr);
+  type ToolRow = { tool_name: string; total_calls: number; failed_calls: number };
+  const grouped = new Map<string, Map<string, ToolRow>>();
+  for (const r of clusterToolCallRows) {
+    const byTool = grouped.get(r.clusterId!) ?? new Map<string, ToolRow>();
+    const tool = byTool.get(r.toolName) ?? {
+      tool_name: r.toolName,
+      total_calls: 0,
+      failed_calls: 0,
+    };
+    tool.total_calls++;
+    if (r.status === "error" || r.status === "empty_result") tool.failed_calls++;
+    byTool.set(r.toolName, tool);
+    grouped.set(r.clusterId!, byTool);
   }
   // Thresholds: we want attribution only when a tool failure is genuinely the
   // story of the cluster — not when *some* refund tool fails in *some*
@@ -213,8 +230,8 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
   // tool that incidentally fails for some unrelated reason).
   const MIN_CALLS = 10;
   const MIN_FAILURE_RATE = 0.5;
-  for (const [clusterId, rows] of grouped) {
-    const candidates = rows
+  for (const [clusterId, byTool] of grouped) {
+    const candidates = Array.from(byTool.values())
       .filter((r) => r.total_calls >= MIN_CALLS)
       .map((r) => ({ tool: r.tool_name, failure_rate: r.failed_calls / r.total_calls }))
       .filter((c) => c.failure_rate >= MIN_FAILURE_RATE)
@@ -224,49 +241,69 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     }
   }
 
-  // Example conversation IDs per cluster — random sample.
-  const exampleRows = await db.execute<{ cluster_id: string; conversation_id: string }>(sql`
-    SELECT cluster_id, conversation_id FROM (
-      SELECT
-        i.cluster_id,
-        t.conversation_id,
-        row_number() OVER (PARTITION BY i.cluster_id ORDER BY random()) AS rn
-      FROM ${schema.intents} i
-      JOIN ${schema.turnSignals} s ON s.intent = i.intent
-      JOIN ${schema.turns} t ON t.id = s.turn_id
-      WHERE i.cluster_id IS NOT NULL
-      GROUP BY i.cluster_id, t.conversation_id
-    ) sub
-    WHERE rn <= ${EXAMPLES_PER_CLUSTER}
-  `);
-  const examplesByCluster = new Map<string, string[]>();
-  for (const r of exampleRows) {
-    const arr = examplesByCluster.get(r.cluster_id) ?? [];
-    arr.push(r.conversation_id);
-    examplesByCluster.set(r.cluster_id, arr);
-  }
+  // Example conversation IDs per cluster. Hash-based pseudo-randomization:
+  // stable across runs (same insight always shows the same examples — good
+  // for debugging) but mixes across the dataset so the LLM and the UI don't
+  // always ground on the same atypical first-by-id conversations.
+  const exampleRows = await db
+    .selectDistinct({
+      clusterId: schema.intents.clusterId,
+      conversationId: schema.turns.conversationId,
+    })
+    .from(schema.intents)
+    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
+    .innerJoin(schema.turns, eq(schema.turns.id, schema.turnSignals.turnId))
+    .where(isNotNull(schema.intents.clusterId));
+  const examplesByCluster = pickStableShuffled(
+    exampleRows.map((r) => ({ key: r.clusterId!, value: r.conversationId })),
+    EXAMPLES_PER_CLUSTER,
+  );
 
   // Sample user messages per cluster — used by the content generator to ground
   // recommendations in actual conversation content, not just aggregates.
   const SAMPLE_MESSAGES_PER_CLUSTER = 8;
-  const sampleMsgRows = await db.execute<{ cluster_id: string; content: string }>(sql`
-    SELECT cluster_id, content FROM (
-      SELECT
-        i.cluster_id,
-        t.content,
-        row_number() OVER (PARTITION BY i.cluster_id ORDER BY random()) AS rn
-      FROM ${schema.intents} i
-      JOIN ${schema.turnSignals} s ON s.intent = i.intent
-      JOIN ${schema.turns} t ON t.id = s.turn_id
-      WHERE i.cluster_id IS NOT NULL AND t.role = 'user' AND length(t.content) > 8
-    ) sub
-    WHERE rn <= ${SAMPLE_MESSAGES_PER_CLUSTER}
-  `);
-  const sampleMessagesByCluster = new Map<string, string[]>();
-  for (const r of sampleMsgRows) {
-    const arr = sampleMessagesByCluster.get(r.cluster_id) ?? [];
-    arr.push(r.content);
-    sampleMessagesByCluster.set(r.cluster_id, arr);
+  const sampleMsgRows = await db
+    .select({
+      clusterId: schema.intents.clusterId,
+      content: schema.turns.content,
+      turnIndex: schema.turns.turnIndex,
+    })
+    .from(schema.intents)
+    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
+    .innerJoin(schema.turns, eq(schema.turns.id, schema.turnSignals.turnId))
+    .where(
+      and(
+        isNotNull(schema.intents.clusterId),
+        eq(schema.turns.role, "user"),
+        sql`length(${schema.turns.content}) > 8`,
+      ),
+    );
+  const sampleMessagesByCluster = pickStableShuffled(
+    sampleMsgRows.map((r) => ({ key: r.clusterId!, value: r.content })),
+    SAMPLE_MESSAGES_PER_CLUSTER,
+  );
+
+  const intentTurnCount = sql<number>`count(${schema.turnSignals.turnId})::int`;
+  const topIntentRows = await db
+    .select({
+      clusterId: schema.intents.clusterId,
+      intent: schema.intents.intent,
+      turnCount: intentTurnCount,
+    })
+    .from(schema.intents)
+    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
+    .where(isNotNull(schema.intents.clusterId))
+    .groupBy(schema.intents.clusterId, schema.intents.intent)
+    .orderBy(asc(schema.intents.clusterId), desc(intentTurnCount), asc(schema.intents.intent));
+  const topIntentsByCluster = new Map<
+    string,
+    Array<{ intent: string; turn_count: number }>
+  >();
+  for (const r of topIntentRows) {
+    const arr = topIntentsByCluster.get(r.clusterId!) ?? [];
+    if (arr.length >= 5) continue;
+    arr.push({ intent: r.intent, turn_count: r.turnCount });
+    topIntentsByCluster.set(r.clusterId!, arr);
   }
 
   return clusters.map((c) => {
@@ -293,6 +330,7 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
       marker_distribution: markerByCluster.get(c.id) ?? {},
       attributed_cause: attributedCause,
       avg_latency_ms: toolStats?.avg_latency_ms ?? 0,
+      top_intents: topIntentsByCluster.get(c.id) ?? [],
       example_conversation_ids: examplesByCluster.get(c.id) ?? [],
       sample_messages: sampleMessagesByCluster.get(c.id) ?? [],
     };
