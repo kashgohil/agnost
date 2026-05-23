@@ -23,9 +23,9 @@ export async function syncIntents(): Promise<{ added: number; total: number }> {
     .onConflictDoNothing({ target: schema.intents.intent })
     .returning({ intent: schema.intents.intent });
 
-  const totalRow = await db.execute<{ count: string }>(
-    sql`SELECT count(*)::text AS count FROM ${schema.intents}`,
-  );
+  const totalRow = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(schema.intents);
   return {
     added: inserted.length,
     total: Number(totalRow[0]?.count ?? 0),
