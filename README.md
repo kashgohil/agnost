@@ -1,4 +1,4 @@
-Sentiment Analytics Engine
+# Sentiment Analytics Engine
 
 The system ingests conversations, extracts normalized user intent and sentiment signals, clusters emerging topics, attributes clusters to tool failures when possible, and exposes PM/engineer-facing insights through APIs and a small Next.js UI.
 
