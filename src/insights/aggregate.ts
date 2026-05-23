@@ -196,7 +196,8 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
 
   // Attributed cause: top-failure tool per cluster (min 5 calls).
   const attributedCauseByCluster = new Map<string, { tool: string; failure_rate: number }>();
-  const grouped = new Map<string, typeof toolRows>();
+  type ToolRow = { cluster_id: string; tool_name: string; total_calls: number; failed_calls: number };
+  const grouped = new Map<string, ToolRow[]>();
   for (const r of toolRows) {
     const arr = grouped.get(r.cluster_id) ?? [];
     arr.push(r);
