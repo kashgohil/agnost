@@ -30,10 +30,10 @@ export const conversations = pgTable(
       .notNull()
       .default(sql`now()`),
   },
-  (t) => ({
-    startedAtIdx: index("conversations_started_at_idx").on(t.startedAt),
-    agentIdIdx: index("conversations_agent_id_idx").on(t.agentId),
-  }),
+  (t) => [
+    index("conversations_started_at_idx").on(t.startedAt),
+    index("conversations_agent_id_idx").on(t.agentId),
+  ],
 );
 
 export const turns = pgTable(
@@ -48,10 +48,10 @@ export const turns = pgTable(
     content: text("content").notNull(),
     timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
   },
-  (t) => ({
-    conversationIdx: index("turns_conversation_idx").on(t.conversationId),
-    roleIdx: index("turns_role_idx").on(t.role),
-  }),
+  (t) => [
+    index("turns_conversation_idx").on(t.conversationId),
+    index("turns_role_idx").on(t.role),
+  ],
 );
 
 export const toolCalls = pgTable(
@@ -69,10 +69,10 @@ export const toolCalls = pgTable(
     latencyMs: integer("latency_ms").notNull(),
     timestamp: timestamp("timestamp", { withTimezone: true }).notNull(),
   },
-  (t) => ({
-    turnIdx: index("tool_calls_turn_idx").on(t.turnId),
-    toolNameStatusIdx: index("tool_calls_tool_name_status_idx").on(t.toolName, t.status),
-  }),
+  (t) => [
+    index("tool_calls_turn_idx").on(t.turnId),
+    index("tool_calls_tool_name_status_idx").on(t.toolName, t.status),
+  ],
 );
 
 // One row per USER turn that has been processed by the signal extractor.
@@ -98,11 +98,42 @@ export const turnSignals = pgTable(
       .notNull()
       .default(sql`now()`),
   },
-  (t) => ({
-    intentIdx: index("turn_signals_intent_idx").on(t.intent),
-    frustrationMarkersIdx: index("turn_signals_frustration_markers_idx")
-      .using("gin", t.frustrationMarkers),
-  }),
+  (t) => [
+    index("turn_signals_intent_idx").on(t.intent),
+    index("turn_signals_frustration_markers_idx").using("gin", t.frustrationMarkers),
+  ],
+);
+
+// One row per cluster — the actual PM/engineer-facing analytics output.
+// `tags` is a fixed-vocabulary multi-axis label set (see src/insights/typology.ts).
+// `taxonomy_version` records which vocab generated this row so historical
+// insights remain comparable when the taxonomy evolves.
+export const insights = pgTable(
+  "insights",
+  {
+    id: text("id").primaryKey(), // "insight_0001"
+    clusterId: text("cluster_id")
+      .notNull()
+      .references(() => clusters.id, { onDelete: "cascade" }),
+    tags: text("tags").array().notNull(),
+    taxonomyVersion: integer("taxonomy_version").notNull(),
+    headline: text("headline").notNull(),
+    volumePct: doublePrecision("volume_pct").notNull(),
+    conversationCount: integer("conversation_count").notNull(),
+    sentimentAvg: doublePrecision("sentiment_avg").notNull(),
+    weeklyVolume: integer("weekly_volume").array().notNull(),
+    attributedCause: jsonb("attributed_cause").$type<{ tool: string; failure_rate: number } | null>(),
+    markerDistribution: jsonb("marker_distribution").$type<Record<string, number>>().notNull(),
+    endReasonDistribution: jsonb("end_reason_distribution").$type<Record<string, number>>().notNull(),
+    exampleConversationIds: text("example_conversation_ids").array().notNull(),
+    generatedAt: timestamp("generated_at", { withTimezone: true })
+      .notNull()
+      .default(sql`now()`),
+  },
+  (t) => [
+    index("insights_tags_idx").using("gin", t.tags),
+    index("insights_cluster_id_idx").on(t.clusterId),
+  ],
 );
 
 // Clusters of semantically-related intents. Re-clusterable: TRUNCATE clusters
@@ -133,11 +164,10 @@ export const intents = pgTable(
     probability: doublePrecision("probability"),
     clusteredAt: timestamp("clustered_at", { withTimezone: true }),
   },
-  (t) => ({
-    clusterIdx: index("intents_cluster_id_idx").on(t.clusterId),
+  (t) => [
+    index("intents_cluster_id_idx").on(t.clusterId),
     // HNSW index for ANN lookups if we ever need them. cosine distance to match
     // our cluster-time distance metric.
-    embeddingIdx: index("intents_embedding_idx")
-      .using("hnsw", t.embedding.op("vector_cosine_ops")),
-  }),
+    index("intents_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  ],
 );

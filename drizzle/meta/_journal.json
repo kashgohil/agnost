@@ -22,6 +22,13 @@
       "when": 1779559587527,
       "tag": "0002_exotic_chamber",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779561827013,
+      "tag": "0003_military_ikaris",
+      "breakpoints": true
     }
   ]
 }
