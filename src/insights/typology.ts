@@ -85,9 +85,45 @@ export type ClusterMetrics = {
   marker_distribution: Record<string, number>;
   attributed_cause: { tool: string; failure_rate: number } | null;
   avg_latency_ms: number;
+  top_intents: Array<{ intent: string; turn_count: number }>;
   example_conversation_ids: string[];
   sample_messages: string[];
 };
+
+// Not every clustered user turn is a PM-worthy topic. These are common
+// conversation mechanics that cut across many real problems and otherwise
+// become noisy "insights" like "users provide order IDs".
+const NON_TOPIC_INTENT_PATTERNS = [
+  /^acknowledge$/,
+  /^provide_/,
+  /^accept_/,
+  /^store_credit/,
+  /^escalation_request$/,
+  /^escalate_issue$/,
+  /^negative_feedback$/,
+  /^abandon(ment)?_/,
+] as const;
+
+export function shouldSurfaceCluster(m: ClusterMetrics): boolean {
+  const topIntent = m.top_intents[0]?.intent;
+  const isNonTopic = topIntent
+    ? NON_TOPIC_INTENT_PATTERNS.some((pattern) => pattern.test(topIntent))
+    : false;
+
+  if (isNonTopic) return false;
+
+  const dropOffRate = m.end_reason_distribution["user_dropped"] ?? 0;
+  const escalationRate = m.end_reason_distribution["escalated"] ?? 0;
+  const hasProblemSignal =
+    m.sentiment_avg < 0 ||
+    dropOffRate >= 0.2 ||
+    escalationRate >= 0.2 ||
+    m.attributed_cause !== null ||
+    m.avg_tool_calls_per_conv < THRESHOLDS.capabilityGapMaxToolCallsPerConv;
+
+  const hasSuccessSignal = m.sentiment_avg > THRESHOLDS.successMinSentiment;
+  return hasProblemSignal || hasSuccessSignal;
+}
 
 // Returns the full tag set for a cluster across all three axes.
 export function classifyCluster(m: ClusterMetrics): {
