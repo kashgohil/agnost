@@ -117,7 +117,7 @@ export const insights = pgTable(
       .references(() => clusters.id, { onDelete: "cascade" }),
     // Outcome partition this insight covers. A cluster can have multiple
     // insights, one per partition. See src/insights/typology.ts.
-    partition: text("partition").notNull(),
+    partition: text("partition").default("unresolved").notNull(),
     tags: text("tags").array().notNull(),
     taxonomyVersion: integer("taxonomy_version").notNull(),
     headline: text("headline").notNull(),
