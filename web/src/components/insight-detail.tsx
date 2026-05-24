@@ -17,13 +17,19 @@ export function InsightDetail({ insight }: { insight: Insight }) {
         <h1 className="text-3xl leading-tight font-medium tracking-tight">
           {insight.headline}
         </h1>
-        <div className="text-ink-mute text-sm">
-          Cluster <span className="text-ink-soft">{insight.cluster_label}</span>
-          {" · "}
-          Generated {new Date(insight.generated_at).toLocaleDateString()}
-          {" · "}
-          Taxonomy v{insight.taxonomy_version}
-        </div>
+        <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 text-sm">
+          <dt className="text-ink-mute">Cluster</dt>
+          <dd className="text-ink-soft">{insight.cluster_label}</dd>
+
+          <dt className="text-ink-mute">Outcome</dt>
+          <dd className="text-ink-soft">{insight.partition.replaceAll("_", " ")}</dd>
+
+          <dt className="text-ink-mute">Generated</dt>
+          <dd className="text-ink-soft">
+            {new Date(insight.generated_at).toLocaleDateString()}
+            <span className="text-ink-mute"> · taxonomy v{insight.taxonomy_version}</span>
+          </dd>
+        </dl>
       </header>
 
       {/* The actionable layer — what to do, plus any specific finding the
