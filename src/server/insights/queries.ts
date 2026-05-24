@@ -1,16 +1,16 @@
-// DB queries for the insights API. Typed Drizzle throughout — no raw SQL.
-
-import { and, arrayContains, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, arrayContains, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
 
 import { db, schema } from "../../db/client.ts";
-import { isFailedToolStatus, toolsForIntents } from "../../insights/tool-relevance.ts";
+import {
+  buildPrecedingUserTurnMap,
+  buildTurnClusterMap,
+  isFailedToolStatus,
+} from "../../insights/proximity.ts";
 import { type OutcomePartition, partitionConversation } from "../../insights/typology.ts";
 import type { ListInsightsQuery, SortOption } from "./schema.ts";
 
 const UNCATEGORIZED_TAG = "uncategorized";
 
-// Single source of truth for the joined insight shape returned by the list/get
-// endpoints. cluster_label is joined in from the clusters table.
 export type InsightWithLabel = {
   id: string;
   cluster_id: string;
@@ -97,14 +97,11 @@ export async function listInsights(
     .limit(q.limit)
     .offset(q.offset);
 
-  // Total count under the same filter (without limit/offset).
   const totalRows = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(schema.insights)
     .where(where);
 
-  // taxonomy_version is consistent across a given generation run; pull from any
-  // row. If no rows, null.
   const anyVersionRow = await db
     .select({ v: schema.insights.taxonomyVersion })
     .from(schema.insights)
@@ -189,11 +186,6 @@ function toInsightWithLabel(row: {
   };
 }
 
-// Eval-set: paginated list of conversations that contributed to this insight.
-// "Contributed" = at least one user turn maps to an intent in the insight's
-// cluster. Ordered started_at desc so paginated iteration is stable and
-// "recent first" is the natural default.
-
 export type EvalSetConversation = {
   conversation_id: string;
   agent_id: string;
@@ -229,10 +221,8 @@ export async function getEvalSet(
   const insight = await getInsightById(insightId);
   if (!insight) return null;
 
-  // Conversations whose user turns map to an intent in this insight's cluster
-  // AND whose outcome partition matches the insight's partition. Partition is
-  // not stored — it's computed from the same deterministic function the
-  // pipeline uses, so this re-derives it on the fly. See typology.partitionConversation.
+  // Re-derive partition per candidate conversation using the same rule the
+  // pipeline uses, so eval-set count agrees with the headline count.
   const candidateConvs = await db
     .selectDistinct({
       conversationId: schema.turns.conversationId,
@@ -251,7 +241,6 @@ export async function getEvalSet(
 
   const candidateIds = candidateConvs.map((r) => r.conversationId);
 
-  // Sentiment per (cluster, conversation) — same as aggregate.ts derivation.
   const sentRows = await db
     .select({
       conversationId: schema.turns.conversationId,
@@ -274,43 +263,56 @@ export async function getEvalSet(
     sentByConv.set(r.conversationId, e);
   }
 
-  // Whether any topically relevant tool call in the conversation failed.
-  // This must match aggregate.ts, otherwise the detail/eval-set page can show
-  // a different partition population than the persisted insight row.
-  const intentTurnCount = sql<number>`count(${schema.turnSignals.turnId})::int`;
-  const topIntentRows = await db
+  const candidateTurns = await db
     .select({
-      intent: schema.intents.intent,
-      turnCount: intentTurnCount,
-    })
-    .from(schema.intents)
-    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
-    .where(eq(schema.intents.clusterId, insight.cluster_id))
-    .groupBy(schema.intents.intent)
-    .orderBy(desc(intentTurnCount), asc(schema.intents.intent))
-    .limit(5);
-  const relevantTools = toolsForIntents(topIntentRows.map((r) => r.intent));
-
-  const failRows = await db
-    .select({
+      id: schema.turns.id,
       conversationId: schema.turns.conversationId,
-      toolName: schema.toolCalls.toolName,
-      status: schema.toolCalls.status,
+      turnIndex: schema.turns.turnIndex,
+      role: schema.turns.role,
     })
     .from(schema.turns)
-    .innerJoin(schema.toolCalls, eq(schema.toolCalls.turnId, schema.turns.id))
     .where(inArray(schema.turns.conversationId, candidateIds));
+
+  const candidateSignals = await db
+    .select({ turnId: schema.turnSignals.turnId, intent: schema.turnSignals.intent })
+    .from(schema.turnSignals)
+    .innerJoin(schema.turns, eq(schema.turns.id, schema.turnSignals.turnId))
+    .where(inArray(schema.turns.conversationId, candidateIds));
+
+  const candidateIntents = await db
+    .select({ intent: schema.intents.intent, clusterId: schema.intents.clusterId })
+    .from(schema.intents)
+    .where(eq(schema.intents.clusterId, insight.cluster_id));
+
+  const precedingUserMap = buildPrecedingUserTurnMap(candidateTurns);
+  const turnIntentMap = new Map(candidateSignals.map((s) => [s.turnId, s.intent]));
+  const intentClusterMap = new Map(candidateIntents.map((i) => [i.intent, i.clusterId]));
+  const turnClusterMap = buildTurnClusterMap(
+    precedingUserMap,
+    turnIntentMap,
+    intentClusterMap,
+  );
+
+  const toolCallRows = await db
+    .select({
+      turnId: schema.toolCalls.turnId,
+      status: schema.toolCalls.status,
+    })
+    .from(schema.toolCalls)
+    .innerJoin(schema.turns, eq(schema.turns.id, schema.toolCalls.turnId))
+    .where(inArray(schema.turns.conversationId, candidateIds));
+
+  const turnConv = new Map(candidateTurns.map((t) => [t.id, t.conversationId]));
   const failByConv = new Map<string, boolean>();
-  for (const r of failRows) {
-    const relevant = relevantTools === null || relevantTools.has(r.toolName);
-    if (relevant && isFailedToolStatus(r.status)) {
-      failByConv.set(r.conversationId, true);
-    } else if (!failByConv.has(r.conversationId)) {
-      failByConv.set(r.conversationId, false);
-    }
+  for (const tc of toolCallRows) {
+    const cluster = turnClusterMap.get(tc.turnId);
+    if (cluster !== insight.cluster_id) continue;
+    const convId = turnConv.get(tc.turnId);
+    if (!convId) continue;
+    if (isFailedToolStatus(tc.status)) failByConv.set(convId, true);
+    else if (!failByConv.has(convId)) failByConv.set(convId, false);
   }
 
-  // Filter to this partition.
   const targetPartition = insight.partition as OutcomePartition;
   const matchingConvs = candidateConvs.filter((c) => {
     const sent = sentByConv.get(c.conversationId);
@@ -323,7 +325,7 @@ export async function getEvalSet(
     return partition === targetPartition;
   });
 
-  matchingConvs.sort((a, b) => (b.startedAt.getTime() - a.startedAt.getTime()));
+  matchingConvs.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
   const total = matchingConvs.length;
   const page = matchingConvs.slice(offset, offset + limit);
 
@@ -372,14 +374,12 @@ async function loadFullConversations(convIds: string[]): Promise<EvalSetConversa
     turnsByConv.set(t.conversationId, arr);
   }
 
-  // Preserve input order (which is sort-by-recent from getEvalSet).
   const byId = new Map(convRows.map((c) => [c.id, c]));
   return convIds
     .map((id) => byId.get(id))
     .filter((c): c is NonNullable<typeof c> => c !== undefined)
     .map((c) => {
       const turns = (turnsByConv.get(c.id) ?? []).map((t) => {
-        // Strip composite-prefix back to the original local id ("t1") for cleanliness.
         const localTurnId = t.id.slice(c.id.length + 1);
         return {
           turn_id: localTurnId,
