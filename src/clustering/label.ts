@@ -1,9 +1,4 @@
-// Generate a human-readable label per cluster.
-//
-// We send the LLM the cluster's member intent strings + a few sample user
-// messages drawn from the corpus. The model returns a short noun-phrase label
-// suitable for an insight headline ("Refund requests outside policy window",
-// "Bulk export requests").
+// LLM-generated human-readable label per cluster.
 
 import { eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -31,7 +26,6 @@ const SAMPLE_MESSAGES_PER_CLUSTER = 5;
 
 async function sampleMessagesForIntents(intents: string[]): Promise<string[]> {
   if (intents.length === 0) return [];
-  // Pull up to N user-message samples across the cluster's intents.
   const rows = await db
     .select({ content: schema.turns.content })
     .from(schema.turns)

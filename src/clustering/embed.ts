@@ -1,7 +1,4 @@
-// Embed any intent strings that don't yet have a vector. Batched, idempotent.
-//
-// OpenRouter's embeddings endpoint is OpenAI-compatible so the openai SDK
-// works without a separate client. We use a server-side singleton.
+// Embed any intent strings missing a vector. Batched, idempotent.
 
 import { eq, isNull, sql } from "drizzle-orm";
 
@@ -31,16 +28,12 @@ export async function embedMissingIntents(model: string): Promise<{ embedded: nu
       }),
     );
 
-    // OpenAI guarantees response order matches input order.
     if (resp.data.length !== batch.length) {
       throw new Error(
         `Embedding response length mismatch: sent ${batch.length}, got ${resp.data.length}`,
       );
     }
 
-    // Updates need to run individually because Drizzle doesn't expose a clean
-    // batch-update-with-different-values primitive. Each is fast — a single
-    // UPDATE WHERE intent = $1.
     for (let j = 0; j < batch.length; j++) {
       const vec = resp.data[j]!.embedding;
       const intent = batch[j]!.intent;

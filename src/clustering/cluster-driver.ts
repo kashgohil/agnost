@@ -1,8 +1,4 @@
-// TS driver for the HDBSCAN subprocess. Loads embedded intents, spawns
-// scripts/cluster.py with vectors on stdin, parses cluster labels from stdout.
-//
-// The Python boundary is intentionally narrow — pure algorithm, no DB access,
-// no business logic. Swap out HDBSCAN by replacing one file.
+// Spawns scripts/cluster.py with vectors on stdin, parses labels from stdout.
 
 import { isNotNull } from "drizzle-orm";
 
@@ -31,7 +27,6 @@ export async function runClustering(
 
   if (rows.length === 0) return [];
 
-  // pgvector via drizzle returns vectors as number[]. Build the subprocess input.
   const vectors = rows.map((r) => r.embedding as number[]);
   const payload = JSON.stringify({
     vectors,
@@ -39,7 +34,7 @@ export async function runClustering(
     min_samples: req.min_samples,
   });
 
-  // clusterRunner may include args (e.g. "uv run"), so split on whitespace.
+  // clusterRunner may include args ("uv run"), split on whitespace.
   const runner = config.clusterRunner.split(/\s+/).filter(Boolean);
   const proc = Bun.spawn([...runner, "scripts/cluster.py"], {
     stdin: "pipe",
@@ -47,7 +42,6 @@ export async function runClustering(
     stderr: "pipe",
   });
 
-  // Bun.spawn's stdin is a WritableStream — write payload and close.
   proc.stdin.write(payload);
   await proc.stdin.end();
 

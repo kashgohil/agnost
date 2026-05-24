@@ -1,10 +1,4 @@
-// End-to-end clustering orchestrator. Five steps:
-//   1. Sync intents from turn_signals (insert any new ones)
-//   2. Embed any intents missing a vector
-//   3. Run HDBSCAN via Python subprocess
-//   4. Promote high-frequency noise singletons to their own clusters
-//   5. Label each cluster with an LLM call
-//   6. Persist clusters + assignments (replaces prior run atomically)
+// sync → embed → cluster (Python) → promote noise singletons → label → persist.
 
 import { inArray, sql } from "drizzle-orm";
 
@@ -16,12 +10,9 @@ import { labelCluster } from "./label.ts";
 import { persistClusters } from "./persist.ts";
 import { syncIntents } from "./sync.ts";
 
-// Why this exists: HDBSCAN min_cluster_size rejects singletons. But if the
-// LLM canonicalizes a concept consistently (e.g., 314 turns all labeled
-// "export_order_history"), that concept is ONE point in clustering space → a
-// singleton → noise. Important high-volume patterns get hidden in noise.
-// Solution: any noise intent that appears in >= this many user turns is
-// promoted to its own single-intent cluster.
+// HDBSCAN drops singletons as noise. When the LLM canonicalizes 100s of
+// messages onto one intent, that concept becomes a singleton and disappears.
+// Promote any noise intent with >= this many user turns to its own cluster.
 const NOISE_PROMOTION_TURN_THRESHOLD = 15;
 
 export type ClusteringStats = {
@@ -54,7 +45,6 @@ function promoteHighFrequencyNoise(
   noisePoints: IntentClusterAssignment[];
   promotedCount: number;
 } {
-  // First pass: split by HDBSCAN label.
   const grouped = new Map<number, IntentClusterAssignment[]>();
   const trueNoise: IntentClusterAssignment[] = [];
   let nextLabel = -1;
@@ -70,7 +60,6 @@ function promoteHighFrequencyNoise(
   }
   nextLabel++;
 
-  // Promote noise singletons whose underlying turn-count is meaningful.
   const remainingNoise: IntentClusterAssignment[] = [];
   let promoted = 0;
   for (const a of trueNoise) {

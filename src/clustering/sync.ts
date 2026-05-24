@@ -1,13 +1,11 @@
 // Sync distinct intents from turn_signals into the intents table.
-// Idempotent: only adds new intent strings, leaves embeddings/clusters intact
-// on existing rows.
+// Idempotent — existing intents keep their embedding/cluster.
 
 import { sql } from "drizzle-orm";
 
 import { db, schema } from "../db/client.ts";
 
 export async function syncIntents(): Promise<{ added: number; total: number }> {
-  // Pull every distinct intent string we've seen in any signal.
   const seen = await db
     .selectDistinct({ intent: schema.turnSignals.intent })
     .from(schema.turnSignals);
@@ -16,7 +14,6 @@ export async function syncIntents(): Promise<{ added: number; total: number }> {
 
   const rows = seen.map((r) => ({ intent: r.intent }));
 
-  // ON CONFLICT DO NOTHING — preserves embedding/cluster fields on existing intents.
   const inserted = await db
     .insert(schema.intents)
     .values(rows)

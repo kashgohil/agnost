@@ -1,13 +1,5 @@
-// Persist cluster assignments + labels + UMAP positions.
-//
-// Re-clustering semantics: clears any existing clusters/cluster-assignments,
-// then writes the new run. Embeddings on `intents` are untouched. Wrap in a
-// transaction so partial state is impossible — either the whole new clustering
-// is visible, or the old one remains.
-//
-// Positions are written for BOTH clustered and noise intents — noise still
-// appears on the Clusters view scatter (uncolored), which is what makes
-// "see what fell through clustering" useful.
+// Persist cluster assignments, labels, and UMAP positions. Atomic replace.
+// Positions are written for noise intents too so they still appear on the scatter.
 
 import { eq, inArray, sql } from "drizzle-orm";
 
@@ -25,12 +17,8 @@ export async function persistClusters(
   noise: IntentClusterAssignment[],
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    // Wipe prior cluster state. ON DELETE SET NULL on intents.cluster_id
-    // clears assignments transitively.
     await tx.delete(schema.clusters);
 
-    // First reset positions on every intent we're about to update — the union
-    // of clustered + noise covers every intent that went through this run.
     const allIntentStrings = [
       ...clusters.flatMap((c) => c.intents.map((i) => i.intent)),
       ...noise.map((n) => n.intent),
@@ -52,8 +40,6 @@ export async function persistClusters(
       );
     }
 
-    // Per-row updates because each intent has its own (cluster_id, prob, x, y)
-    // tuple — no clean bulk equivalent in plain SQL.
     for (const c of clusters) {
       for (const i of c.intents) {
         await tx
@@ -69,7 +55,6 @@ export async function persistClusters(
       }
     }
 
-    // Noise points: set positions only. cluster_id stays null.
     for (const n of noise) {
       await tx
         .update(schema.intents)
