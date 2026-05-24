@@ -7,6 +7,7 @@ import { db, schema } from "../db/client.ts";
 export type InsightRecord = {
   id: string;
   cluster_id: string;
+  partition: string;
   tags: string[];
   taxonomy_version: number;
   headline: string;
@@ -30,6 +31,7 @@ export async function persistInsights(insights: InsightRecord[]): Promise<void> 
       insights.map((i) => ({
         id: i.id,
         clusterId: i.cluster_id,
+        partition: i.partition,
         tags: i.tags,
         taxonomyVersion: i.taxonomy_version,
         headline: i.headline,
