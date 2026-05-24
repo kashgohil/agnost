@@ -8,32 +8,27 @@ The brief asks for **insights, not metrics** — *"20% of users requesting refun
 
 ## Pipeline
 
-```
-POST /v1/traces                       (Bun + Elysia)
-   │
-   ▼
-conversations / turns / tool_calls    (Postgres)
-   │
-   ▼
-per-conversation signal extraction    (LLM, classify-then-cluster)
-   │   → turn_signals { intent, sentiment, frustration_markers, is_repeat }
-   ▼
-sync distinct intents → embed         (OpenRouter + pgvector)
-   │
-   ▼
-HDBSCAN + UMAP via Python subprocess  (~40 LoC, only Python in the project)
-   │   → intents { cluster_id, position_(x,y) }
-   ▼
-aggregate per cluster → classify      (deterministic rules)
-   │   → tags { problem, trajectory, severity }
-   ▼
-generate insight content              (LLM)
-   │   → insights { headline, recommendation, key_observation, + metrics }
-   ▼
-GET /v1/insights                      (paginated, tag-filterable, with eval-set)
-   │
-   ▼
-Next.js UI: insights list, detail, clusters scatter, eval-set drawer
+```mermaid
+flowchart TD
+    A["POST /v1/traces<br/><i>Bun + Elysia</i>"] --> B[("conversations<br/>turns<br/>tool_calls<br/><i>Postgres</i>")]
+    B --> C["Per-conversation signal extraction<br/><i>LLM · classify-then-cluster</i>"]
+    C --> D[("turn_signals<br/>intent · sentiment<br/>frustration_markers · is_repeat")]
+    D --> E["Sync distinct intents → embed<br/><i>OpenRouter + pgvector</i>"]
+    E --> F["HDBSCAN + UMAP<br/><i>Python subprocess · ~40 LoC</i>"]
+    F --> G[("intents<br/>cluster_id · position_x,y")]
+    G --> H["Aggregate per cluster → classify<br/><i>deterministic rules</i>"]
+    H --> I[/"tags<br/>problem · trajectory · severity"/]
+    I --> J["Generate insight content<br/><i>LLM</i>"]
+    J --> K[("insights<br/>headline · recommendation<br/>key_observation · metrics")]
+    K --> L["GET /v1/insights<br/><i>paginated · tag-filterable · with eval-set</i>"]
+    L --> M["Next.js UI<br/><i>list · detail · clusters scatter · eval-set drawer</i>"]
+
+    classDef store fill:#f4f4f5,stroke:#a1a1aa,color:#18181b
+    classDef compute fill:#fff,stroke:#27272a,color:#18181b
+    classDef io fill:#18181b,stroke:#18181b,color:#fafafa
+    class B,D,G,K store
+    class C,E,F,H,J compute
+    class A,L,M io
 ```
 
 ---
