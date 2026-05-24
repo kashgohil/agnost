@@ -54,13 +54,18 @@ export async function generateContent(
 
   const tagGuidance = guidanceFor(tags.problem);
 
-  const prompt = `You are turning a cluster of user-conversation analytics into an actionable insight for a product manager. The PM has already seen the volume %, sentiment, trend, and tool attribution on the card. Your job is to produce the INSIGHT — not restate the metrics.
+  const partitionBlurb = partitionGuidance(m.partition);
 
-Cluster label: ${m.cluster_label}
+  const prompt = `You are turning analytics into an actionable insight for a product manager. The PM has already seen the volume %, sentiment, trend, and tool attribution on the card. Your job is to produce the INSIGHT — not restate the metrics.
+
+This insight is one *outcome slice* of a topic cluster. The cluster is the topic; the partition is what happened to users on this topic. There may be other insights from the same cluster covering different outcomes.
+
+Cluster label (topic): ${m.cluster_label}
+Outcome partition: ${m.partition} — ${partitionBlurb}
 Problem tag: ${tags.problem} — ${tagGuidance}
 Trajectory: ${tags.trajectory}
 Severity: ${tags.severity}
-Conversations in cluster: ${m.conversation_count} (${(m.volume_pct * 100).toFixed(0)}% of total)
+Conversations in this partition: ${m.conversation_count} (${(m.volume_pct * 100).toFixed(0)}% of total conversations)
 Average sentiment: ${m.sentiment_avg.toFixed(2)}
 Drop-off rate: ${((m.end_reason_distribution["user_dropped"] ?? 0) * 100).toFixed(0)}%
 Escalation rate: ${((m.end_reason_distribution["escalated"] ?? 0) * 100).toFixed(0)}%${causeBlurb}${topIntentsBlock}${samplesBlock}
@@ -107,6 +112,25 @@ Return strictly the structured JSON matching the schema.`;
   const content = resp.choices[0]?.message.content;
   if (!content) throw new Error("Empty response from insight content generator");
   return ContentSchema.parse(JSON.parse(content));
+}
+
+function partitionGuidance(partition: string): string {
+  switch (partition) {
+    case "succeeded":
+      return "These users got what they wanted on this topic. Treat as positive signal — recommendation is usually 'template / amplify' or 'no action'.";
+    case "failed_at_tool":
+      return "A tool failed in these conversations. Recommendation should target the tool / failure rule.";
+    case "dropped_off":
+      return "Users abandoned without resolution. Recommendation should reduce silent failures or make the dead-end visible to the user.";
+    case "escalated":
+      return "Agent handed off to a human. Recommendation should reduce the need to escalate.";
+    case "agent_gave_up":
+      return "Agent stopped trying. Likely a capability or reasoning gap. Recommendation should fill the gap.";
+    case "unresolved":
+      return "Mixed outcomes that don't fit cleanly elsewhere. Be honest in framing.";
+    default:
+      return "";
+  }
 }
 
 function guidanceFor(tag: string): string {
