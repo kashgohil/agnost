@@ -9,34 +9,29 @@ Its **insights, not metrics** — *"20% of users requesting refunds due to X"*, 
 ## Pipeline
 
 ```mermaid
-flowchart TB
-    A["POST /v1/traces<br/><i>Elysia</i>"]
-    A --> Convos[("conversations · turns · tool_calls")]
-
-    Convos --> SigLLM(["LLM · per-conversation signal extraction<br/><i>intent · sentiment · markers · is_repeat</i>"])
-    SigLLM --> Sigs[("turn_signals")]
-
-    Sigs --> Sync["Sync distinct intents into the intents table"]
-    Sync --> EmbLLM(["LLM · embed each intent<br/><i>text-embedding-3-small</i>"])
-    EmbLLM --> HDB["HDBSCAN clustering<br/><i>Python subprocess · ~40 LoC</i>"]
-    HDB --> LabLLM(["LLM · name each cluster"])
-    LabLLM --> Ints[("intents · clusters<br/><i>cluster_id · embedding · label</i>")]
-
-    Ints --> Agg["Aggregate metrics + classify tags<br/><i>deterministic</i>"]
-    Agg --> ConLLM(["LLM · insight content<br/><i>headline · recommendation · observation</i>"])
-    ConLLM --> Ins[("insights")]
-
-    Ins --> API["GET /v1/insights<br/><i>paginated · tag-filterable · with eval-set</i>"]
-    API --> UI["Next.js UI<br/><i>list · detail · clusters scatter · eval-set drawer</i>"]
+flowchart LR
+    POST["POST<br/>/v1/traces"]
+    POST --> Convos[("conversations")]
+    Convos --> L1(["LLM<br/>signal extract"])
+    L1 --> Sigs[("turn_signals")]
+    Sigs --> L2(["LLM<br/>embed"])
+    L2 --> HDB["HDBSCAN<br/>Python"]
+    HDB --> L3(["LLM<br/>label cluster"])
+    L3 --> Ints[("intents<br/>+ clusters")]
+    Ints --> Agg["Aggregate<br/>+ classify"]
+    Agg --> L4(["LLM<br/>insight content"])
+    L4 --> Ins[("insights")]
+    Ins --> GET["GET<br/>/v1/insights"]
+    GET --> UI["Next.js<br/>UI"]
 
     classDef store fill:#f4f4f5,stroke:#a1a1aa,color:#18181b
     classDef compute fill:#fff,stroke:#27272a,color:#18181b
     classDef llm fill:#fef3c7,stroke:#d97706,color:#78350f
     classDef io fill:#18181b,stroke:#18181b,color:#fafafa
     class Convos,Sigs,Ints,Ins store
-    class Sync,HDB,Agg compute
-    class SigLLM,EmbLLM,LabLLM,ConLLM llm
-    class A,API,UI io
+    class HDB,Agg compute
+    class L1,L2,L3,L4 llm
+    class POST,GET,UI io
 ```
 
 ---
