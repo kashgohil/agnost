@@ -1,6 +1,4 @@
-// The expansion prompt: takes a scenario + skeleton and produces the message
-// sent to the LLM. Isolated here so it can be tuned, swapped, or A/B'd
-// without touching the generator pipeline.
+// Expansion prompt for the dataset LLM call.
 
 import type { Scenario, Skeleton } from "./types.ts";
 

@@ -1,12 +1,6 @@
-// Zod schema for the LLM-generated conversation, plus the JSON Schema we send
-// to OpenRouter as `response_format`. One schema, two enforcement points:
-// outbound (constrains the LLM) and inbound (re-validates the response).
-//
-// On `input_summary: string` instead of `input: object`:
-// OpenAI strict-mode JSON schemas require additionalProperties:false on every
-// object, which makes a free-form `input: object` impossible. A human-readable
-// summary string is fine for the synthetic dataset and reads more naturally;
-// the real ingestion endpoint accepts structured tool input separately.
+// Zod schema for the LLM-generated conversation, also used as the JSON schema
+// sent in response_format. `input_summary: string` (not `input: object`) is a
+// workaround: OpenAI strict mode forbids free-form objects.
 
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";

@@ -1,9 +1,4 @@
-// Deterministic seeded RNG. Used everywhere randomness appears in the generator
-// — week assignment, skeleton shuffling, timestamp jitter — so a given --seed
-// produces a bit-identical dataset.
-//
-// Mulberry32 is good enough for non-cryptographic seeded randomness and avoids
-// pulling a dependency. ~10 lines.
+// Mulberry32 seeded RNG. --seed produces a bit-identical dataset.
 
 export function makeRng(seed: number): () => number {
   let s = seed >>> 0;

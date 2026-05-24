@@ -1,5 +1,4 @@
-// Load a scenario YAML and turn it into a flat work list of
-// (skeleton, week_idx) pairs that the generator can iterate over.
+// Load a scenario YAML and flatten it into (skeleton, week_idx) work items.
 
 import { readFileSync } from "node:fs";
 import { parse as parseYaml } from "yaml";
@@ -11,8 +10,7 @@ export function loadScenario(path: string): Scenario {
   return parseYaml(readFileSync(path, "utf-8")) as Scenario;
 }
 
-// Within a mode, target_count splits evenly across its skeletons. The last
-// skeleton absorbs any remainder so totals match target_count exactly.
+// Splits target_count evenly across skeletons; last skeleton takes the remainder.
 export function flattenSkeletons(
   scenario: Scenario,
 ): Array<[Skeleton, number]> {
@@ -50,9 +48,7 @@ function assignWeeks(scenario: Scenario): Record<string, number[]> {
   return out;
 }
 
-// Build the full work list: every conversation to generate, with its
-// skeleton and assigned week. Modes are interleaved (output isn't grouped
-// by mode) so partial runs still produce a representative sample.
+// Modes are interleaved so partial runs still produce a representative sample.
 export function buildWorkList(
   scenario: Scenario,
   rng: () => number,
