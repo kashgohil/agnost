@@ -13,10 +13,53 @@
 // Removing a tag: same flow, but verify no insight queries depend on the
 // removed tag string first.
 
-export const TAXONOMY_VERSION = 1;
+export const TAXONOMY_VERSION = 2;
 
 // Changelog (keep in sync with TAXONOMY_VERSION):
 // v1 (2026-05-24): initial — 7 problem categories, 4 trajectories, 3 severities.
+// v2 (2026-05-24): added outcome partition layer (6 partitions). Insights are now
+//                  generated per (cluster, partition) pair rather than per cluster.
+
+// Outcome partition — a deterministic categorization of how a conversation
+// played out. Cluster = topic (refund-related). Partition = outcome (succeeded,
+// failed at tool, dropped off). Insight = (cluster, partition). One topic can
+// produce multiple insights because the same topic plays out differently for
+// different users.
+export const OUTCOME_PARTITIONS = [
+  "succeeded",       // resolved + positive sentiment + no failing tools
+  "failed_at_tool",  // an attributable tool failed in this conversation
+  "dropped_off",     // user_dropped end_reason
+  "escalated",       // escalated end_reason
+  "agent_gave_up",   // agent_gave_up end_reason
+  "unresolved",      // fallback — none of the above match cleanly
+] as const;
+
+export type OutcomePartition = (typeof OUTCOME_PARTITIONS)[number];
+
+// Inputs needed to partition a single conversation. All these are facts that
+// already exist on or are derivable from the conversation + its tool calls.
+export type ConversationOutcomeFacts = {
+  end_reason: string;
+  sentiment_avg: number;       // avg sentiment across user turns
+  any_tool_failed: boolean;    // at least one tool call had status in (error, empty_result)
+};
+
+export function partitionConversation(f: ConversationOutcomeFacts): OutcomePartition {
+  // Order matters — most specific outcome wins. A conversation that escalated
+  // because a tool failed is "failed_at_tool" (the actionable cause), not
+  // "escalated" (the symptom).
+  if (f.any_tool_failed) return "failed_at_tool";
+  if (f.end_reason === "user_dropped") return "dropped_off";
+  if (f.end_reason === "escalated") return "escalated";
+  if (f.end_reason === "agent_gave_up") return "agent_gave_up";
+  if (f.end_reason === "resolved" && f.sentiment_avg >= 0.2) return "succeeded";
+  return "unresolved";
+}
+
+// Minimum conversations a partition must have to surface as its own insight.
+// Below this we'd be generating insights on near-empty buckets — noise more
+// than signal. Tunable.
+export const MIN_PARTITION_VOLUME = 5;
 
 export const PROBLEM_TAGS = [
   "capability_gap",      // no tool exists for the user's intent
@@ -67,13 +110,14 @@ export const THRESHOLDS = {
   severityLowMaxVolume: 0.02,
 } as const;
 
-// Everything aggregate.ts computes per cluster. Some fields drive classification
-// (sentiment, repeat rate, etc.), others are pass-through for persistence
-// (example_conversation_ids). One shape so pipeline.ts doesn't have to juggle
-// multiple maps.
+// Metrics for one (cluster, partition) cell — the unit that becomes an insight.
+// A single cluster_id can appear under multiple partitions in the pipeline output.
+// Some fields drive classification (sentiment, repeat rate, etc.); others are
+// pass-through for persistence (example_conversation_ids).
 export type ClusterMetrics = {
   cluster_id: string;
   cluster_label: string;
+  partition: OutcomePartition;
   conversation_count: number;
   total_conversations: number;
   volume_pct: number;
@@ -104,25 +148,32 @@ const NON_TOPIC_INTENT_PATTERNS = [
   /^abandon(ment)?_/,
 ] as const;
 
-export function shouldSurfaceCluster(m: ClusterMetrics): boolean {
+// A partition surfaces as an insight if it has enough volume AND its anchor
+// cluster has a topical (not filler) intent. Volume floor catches near-empty
+// partitions; the filler check prevents "users acknowledge" type clusters
+// from producing any insights regardless of partition.
+export function shouldSurfacePartition(m: ClusterMetrics): boolean {
+  if (m.conversation_count < MIN_PARTITION_VOLUME) return false;
+
   const topIntent = m.top_intents[0]?.intent;
   const isNonTopic = topIntent
     ? NON_TOPIC_INTENT_PATTERNS.some((pattern) => pattern.test(topIntent))
     : false;
-
   if (isNonTopic) return false;
+
+  // succeeded / failed_at_tool partitions are always actionable (positive or
+  // negative). Other partitions need at least one signal beyond mere volume.
+  if (m.partition === "succeeded" || m.partition === "failed_at_tool") return true;
 
   const dropOffRate = m.end_reason_distribution["user_dropped"] ?? 0;
   const escalationRate = m.end_reason_distribution["escalated"] ?? 0;
-  const hasProblemSignal =
+  return (
     m.sentiment_avg < 0 ||
     dropOffRate >= 0.2 ||
     escalationRate >= 0.2 ||
     m.attributed_cause !== null ||
-    m.avg_tool_calls_per_conv < THRESHOLDS.capabilityGapMaxToolCallsPerConv;
-
-  const hasSuccessSignal = m.sentiment_avg > THRESHOLDS.successMinSentiment;
-  return hasProblemSignal || hasSuccessSignal;
+    m.avg_tool_calls_per_conv < THRESHOLDS.capabilityGapMaxToolCallsPerConv
+  );
 }
 
 // Returns the full tag set for a cluster across all three axes.
