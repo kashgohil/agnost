@@ -29,7 +29,8 @@ export function FilterBar() {
   const activeTags = new Set(params.getAll("tag"));
   const sort = params.get("sort") ?? "volume_desc";
   const includeUncategorized = params.get("include_uncategorized") === "true";
-  const hasFilters = activeTags.size > 0 || sort !== "volume_desc" || includeUncategorized;
+  const hasFilters =
+    activeTags.size > 0 || sort !== "volume_desc" || includeUncategorized;
 
   const update = (mutate: (p: URLSearchParams) => void) => {
     const next = new URLSearchParams(params.toString());
@@ -49,15 +50,33 @@ export function FilterBar() {
 
   return (
     <div className="space-y-4">
-      <FilterRow title="Problem" tags={PROBLEM_TAGS} active={activeTags} onToggle={toggleTag} />
-      <FilterRow title="Trajectory" tags={TRAJECTORY_TAGS} active={activeTags} onToggle={toggleTag} />
-      <FilterRow title="Severity" tags={SEVERITY_TAGS} active={activeTags} onToggle={toggleTag} />
+      <FilterRow
+        title="Problem"
+        tags={PROBLEM_TAGS}
+        active={activeTags}
+        onToggle={toggleTag}
+      />
+      <FilterRow
+        title="Trajectory"
+        tags={TRAJECTORY_TAGS}
+        active={activeTags}
+        onToggle={toggleTag}
+      />
+      <FilterRow
+        title="Severity"
+        tags={SEVERITY_TAGS}
+        active={activeTags}
+        onToggle={toggleTag}
+      />
 
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-2">
         <div className="flex items-center gap-3">
           <span className="text-ink-soft text-xs">Sort</span>
-          <Select value={sort} onValueChange={(v) => update((p) => p.set("sort", v))}>
-            <SelectTrigger className="min-w-[180px]">
+          <Select
+            value={sort}
+            onValueChange={(v) => update((p) => p.set("sort", v))}
+          >
+            <SelectTrigger className="min-w-45">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

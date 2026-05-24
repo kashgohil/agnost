@@ -45,7 +45,9 @@ export const SelectContent = React.forwardRef<
       position={position}
       {...props}
     >
-      <SelectPrimitive.Viewport className="p-1">{children}</SelectPrimitive.Viewport>
+      <SelectPrimitive.Viewport className="p-1">
+        {children}
+      </SelectPrimitive.Viewport>
     </SelectPrimitive.Content>
   </SelectPrimitive.Portal>
 ));
@@ -58,7 +60,7 @@ export const SelectItem = React.forwardRef<
   <SelectPrimitive.Item
     ref={ref}
     className={cn(
-      "data-[highlighted]:bg-paper relative flex w-full cursor-pointer items-center rounded-sm py-1.5 pr-7 pl-3 text-xs outline-none select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50",
+      "data-highlighted:bg-paper relative flex w-full cursor-pointer items-center rounded-sm py-1.5 pr-7 pl-3 text-xs outline-none select-none data-disabled:pointer-events-none data-disabled:opacity-50",
       className,
     )}
     {...props}
