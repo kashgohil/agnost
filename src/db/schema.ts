@@ -111,10 +111,13 @@ export const turnSignals = pgTable(
 export const insights = pgTable(
   "insights",
   {
-    id: text("id").primaryKey(), // "insight_0001"
+    id: text("id").primaryKey(), // "insight_0001_failed_at_tool"
     clusterId: text("cluster_id")
       .notNull()
       .references(() => clusters.id, { onDelete: "cascade" }),
+    // Outcome partition this insight covers. A cluster can have multiple
+    // insights, one per partition. See src/insights/typology.ts.
+    partition: text("partition").notNull(),
     tags: text("tags").array().notNull(),
     taxonomyVersion: integer("taxonomy_version").notNull(),
     headline: text("headline").notNull(),
