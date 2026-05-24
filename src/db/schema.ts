@@ -1,7 +1,3 @@
-// Database schema for ingestion-side tables. Signal/cluster/insight tables
-// land alongside their respective pipeline tasks — keeping this file scoped
-// to what's actually wired up avoids dead schema.
-
 import { sql } from "drizzle-orm";
 import {
   boolean,
@@ -23,8 +19,7 @@ export const conversations = pgTable(
     startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
     endedAt: timestamp("ended_at", { withTimezone: true }).notNull(),
     endReason: text("end_reason").notNull(),
-    // Original payload retained verbatim so the pipeline can be re-run without
-    // re-ingesting upstream. Cheap insurance; storage is not the bottleneck.
+    // Verbatim payload — lets the pipeline re-run without re-ingesting.
     raw: jsonb("raw").notNull(),
     ingestedAt: timestamp("ingested_at", { withTimezone: true })
       .notNull()
@@ -75,15 +70,8 @@ export const toolCalls = pgTable(
   ],
 );
 
-// One row per USER turn that has been processed by the signal extractor.
-// Assistant turns are skipped — signals are about user intent/sentiment, not
-// agent output. `intent` is a short canonical phrase (e.g. "refund_old_order")
-// — what gets clustered later. See REASONING.md for why we cluster on
-// structured intents instead of raw text embeddings.
-//
-// `frustration_markers` is text[] (not jsonb) so we can put a GIN index on it
-// and run queries like "clusters with high `escalation_request` marker density"
-// directly in SQL.
+// One row per user turn after signal extraction. Assistant turns are skipped.
+// `intent` is the canonical phrase clustered later. See REASONING.md §1.
 export const turnSignals = pgTable(
   "turn_signals",
   {
@@ -104,10 +92,7 @@ export const turnSignals = pgTable(
   ],
 );
 
-// One row per cluster — the actual PM/engineer-facing analytics output.
-// `tags` is a fixed-vocabulary multi-axis label set (see src/insights/typology.ts).
-// `taxonomy_version` records which vocab generated this row so historical
-// insights remain comparable when the taxonomy evolves.
+// One row per (cluster, partition). See typology.ts.
 export const insights = pgTable(
   "insights",
   {
@@ -115,15 +100,10 @@ export const insights = pgTable(
     clusterId: text("cluster_id")
       .notNull()
       .references(() => clusters.id, { onDelete: "cascade" }),
-    // Outcome partition this insight covers. A cluster can have multiple
-    // insights, one per partition. See src/insights/typology.ts.
     partition: text("partition").default("unresolved").notNull(),
     tags: text("tags").array().notNull(),
     taxonomyVersion: integer("taxonomy_version").notNull(),
     headline: text("headline").notNull(),
-    // The insight content beyond the headline. Recommendation tells the PM
-    // what to consider doing; key_observation is an optional specific finding
-    // from the cluster's samples that wouldn't be obvious from aggregates.
     recommendation: text("recommendation").notNull(),
     keyObservation: text("key_observation"),
     volumePct: doublePrecision("volume_pct").notNull(),
@@ -144,9 +124,6 @@ export const insights = pgTable(
   ],
 );
 
-// Clusters of semantically-related intents. Re-clusterable: TRUNCATE clusters
-// then re-run; intent embeddings on `intents` are preserved. `member_count` is
-// denormalized for fast filtering.
 export const clusters = pgTable("clusters", {
   id: text("id").primaryKey(), // "cluster_0001"
   label: text("label").notNull(),
@@ -156,9 +133,7 @@ export const clusters = pgTable("clusters", {
     .default(sql`now()`),
 });
 
-// One row per UNIQUE intent string across the corpus. Embedded once, then
-// reused across re-clustering runs. cluster_id is nullable: HDBSCAN noise
-// points and not-yet-clustered intents both sit at NULL.
+// One row per unique intent string. cluster_id is null for HDBSCAN noise.
 export const intents = pgTable(
   "intents",
   {
@@ -171,15 +146,12 @@ export const intents = pgTable(
     clusterId: text("cluster_id").references(() => clusters.id, { onDelete: "set null" }),
     probability: doublePrecision("probability"),
     clusteredAt: timestamp("clustered_at", { withTimezone: true }),
-    // 2D UMAP projection of the embedding, used by the Clusters view scatter.
-    // Computed during clustering; nulled if the run skips UMAP for any reason.
+    // UMAP projection — for the /clusters scatter only, not for insight logic.
     positionX: doublePrecision("position_x"),
     positionY: doublePrecision("position_y"),
   },
   (t) => [
     index("intents_cluster_id_idx").on(t.clusterId),
-    // HNSW index for ANN lookups if we ever need them. cosine distance to match
-    // our cluster-time distance metric.
     index("intents_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
   ],
 );
