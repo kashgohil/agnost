@@ -11,10 +11,15 @@ export function InsightListCard({ insight }: { insight: Insight }) {
   return (
     <Link
       href={`/insights/${insight.id}`}
-      className="group border-rule hover:bg-paper block border-b py-5 transition-colors"
+      className="group border-rule hover:bg-paper block border-b p-5 transition-colors"
     >
       <div className="grid grid-cols-[1fr_auto_auto] items-center gap-8">
         <div className="space-y-2">
+          <div className="text-ink-mute font-mono text-[11px] uppercase tracking-wide">
+            {insight.cluster_label}
+            <span className="mx-1.5">·</span>
+            {insight.partition.replaceAll("_", " ")}
+          </div>
           <h3 className="text-ink text-base leading-snug font-medium">
             {insight.headline}
           </h3>
@@ -22,8 +27,11 @@ export function InsightListCard({ insight }: { insight: Insight }) {
             <TagBadges tags={insight.tags} />
             {insight.attributed_cause && (
               <span className="text-ink-mute text-xs">
-                · <span className="font-mono">{insight.attributed_cause.tool}</span> fails{" "}
-                {Math.round(insight.attributed_cause.failure_rate * 100)}%
+                ·{" "}
+                <span className="font-mono">
+                  {insight.attributed_cause.tool}
+                </span>{" "}
+                fails {Math.round(insight.attributed_cause.failure_rate * 100)}%
               </span>
             )}
           </div>
