@@ -37,6 +37,29 @@ type Key = string; // "cluster_id::partition"
 const key = (clusterId: string, partition: OutcomePartition): Key =>
   `${clusterId}::${partition}`;
 
+const TOOL_INTENT_PATTERNS: Array<{ pattern: RegExp; tools: string[] }> = [
+  { pattern: /refund/, tools: ["process_refund"] },
+  { pattern: /(shipping|address|redirect|rerout|package)/, tools: ["update_shipping_address"] },
+  { pattern: /(order_status|find_old_order|lookup_order|order_lookup)/, tools: ["lookup_order"] },
+  { pattern: /(inventory|stock|availability|product)/, tools: ["check_inventory", "recommend_product"] },
+];
+
+function toolsForIntents(intents: string[]): Set<string> | null {
+  const tools = new Set<string>();
+  for (const intent of intents) {
+    for (const rule of TOOL_INTENT_PATTERNS) {
+      if (rule.pattern.test(intent)) {
+        for (const tool of rule.tools) tools.add(tool);
+      }
+    }
+  }
+  return tools.size > 0 ? tools : null;
+}
+
+function isFailed(status: string): boolean {
+  return status === "error" || status === "empty_result";
+}
+
 export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
   const clusters = await db
     .select({ id: schema.clusters.id, label: schema.clusters.label })
@@ -62,6 +85,7 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     sentimentAvg: number;        // avg over user-turn signals in cluster
     isRepeatRate: number;        // avg of is_repeat flags in cluster
     turnCountInCluster: number;  // number of user turns in this cluster
+    anyRelevantToolFailed: boolean;
     anyToolFailed: boolean;
     toolCallCount: number;
     toolLatencySum: number;      // for avg latency per conversation
@@ -92,6 +116,39 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     })
     .from(schema.conversations);
   const convMeta = new Map(convMetaRows.map((r) => [r.id, r]));
+
+  // Dominant intents per cluster. Used twice:
+  //   1. grounding content generation
+  //   2. deciding which tools are relevant to a cluster for attribution
+  const intentTurnCount = sql<number>`count(${schema.turnSignals.turnId})::int`;
+  const topIntentRows = await db
+    .select({
+      clusterId: schema.intents.clusterId,
+      intent: schema.intents.intent,
+      turnCount: intentTurnCount,
+    })
+    .from(schema.intents)
+    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
+    .where(isNotNull(schema.intents.clusterId))
+    .groupBy(schema.intents.clusterId, schema.intents.intent)
+    .orderBy(asc(schema.intents.clusterId), desc(intentTurnCount), asc(schema.intents.intent));
+  const topIntentsByCluster = new Map<
+    string,
+    Array<{ intent: string; turn_count: number }>
+  >();
+  for (const r of topIntentRows) {
+    const arr = topIntentsByCluster.get(r.clusterId!) ?? [];
+    if (arr.length >= 5) continue;
+    arr.push({ intent: r.intent, turn_count: r.turnCount });
+    topIntentsByCluster.set(r.clusterId!, arr);
+  }
+  const relevantToolsByCluster = new Map<string, Set<string> | null>();
+  for (const c of clusters) {
+    relevantToolsByCluster.set(
+      c.id,
+      toolsForIntents((topIntentsByCluster.get(c.id) ?? []).map((i) => i.intent)),
+    );
+  }
 
   // For each (cluster, conversation), gather all tool calls in that
   // conversation. Tool calls are per-conversation, not per-cluster — a
@@ -135,6 +192,7 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
         sentimentAvg: 0,
         isRepeatRate: 0,
         turnCountInCluster: 0,
+        anyRelevantToolFailed: false,
         anyToolFailed: false,
         toolCallCount: 0,
         toolLatencySum: 0,
@@ -155,8 +213,13 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     if (!f) continue;
     f.toolCallCount += 1;
     f.toolLatencySum += r.latencyMs;
-    if (r.status === "error" || r.status === "empty_result") {
+    const failed = isFailed(r.status);
+    if (failed) {
       f.anyToolFailed = true;
+      const relevantTools = relevantToolsByCluster.get(r.clusterId!);
+      if (relevantTools === null || relevantTools?.has(r.toolName)) {
+        f.anyRelevantToolFailed = true;
+      }
     }
   }
 
@@ -165,7 +228,7 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     f.partition = partitionConversation({
       end_reason: f.endReason,
       sentiment_avg: f.sentimentAvg,
-      any_tool_failed: f.anyToolFailed,
+      any_tool_failed: f.anyRelevantToolFailed,
     });
   }
 
@@ -239,6 +302,8 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     const cluster = r.clusterId!;
     const partition = conversationPartition.get(`${cluster}::${r.conversationId}`);
     if (!partition) continue;
+    const relevantTools = relevantToolsByCluster.get(cluster);
+    if (relevantTools !== null && !relevantTools?.has(r.toolName)) continue;
     const k = key(cluster, partition);
     let byTool = toolAccs.get(k);
     if (!byTool) {
@@ -247,7 +312,7 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
     }
     const ta = byTool.get(r.toolName) ?? { calls: 0, failed: 0 };
     ta.calls += 1;
-    if (r.status === "error" || r.status === "empty_result") ta.failed += 1;
+    if (isFailed(r.status)) ta.failed += 1;
     byTool.set(r.toolName, ta);
   }
   const attribCause = new Map<Key, { tool: string; failure_rate: number }>();
@@ -336,31 +401,7 @@ export async function aggregateAllClusters(): Promise<ClusterMetrics[]> {
   }
   const sampleByKey = pickStableShuffled(sampleSeed, SAMPLE_MESSAGES_PER_PARTITION);
 
-  // 7. TOP INTENTS per cluster (not per partition — intents are cluster-level).
-  const intentTurnCount = sql<number>`count(${schema.turnSignals.turnId})::int`;
-  const topIntentRows = await db
-    .select({
-      clusterId: schema.intents.clusterId,
-      intent: schema.intents.intent,
-      turnCount: intentTurnCount,
-    })
-    .from(schema.intents)
-    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
-    .where(isNotNull(schema.intents.clusterId))
-    .groupBy(schema.intents.clusterId, schema.intents.intent)
-    .orderBy(asc(schema.intents.clusterId), desc(intentTurnCount), asc(schema.intents.intent));
-  const topIntentsByCluster = new Map<
-    string,
-    Array<{ intent: string; turn_count: number }>
-  >();
-  for (const r of topIntentRows) {
-    const arr = topIntentsByCluster.get(r.clusterId!) ?? [];
-    if (arr.length >= 5) continue;
-    arr.push({ intent: r.intent, turn_count: r.turnCount });
-    topIntentsByCluster.set(r.clusterId!, arr);
-  }
-
-  // 8. EMIT ClusterMetrics — one per (cluster, partition).
+  // 7. EMIT ClusterMetrics — one per (cluster, partition).
   const clusterById = new Map(clusters.map((c) => [c.id, c]));
   const result: ClusterMetrics[] = [];
   for (const [k, a] of accs) {
