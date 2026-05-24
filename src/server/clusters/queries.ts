@@ -16,8 +16,9 @@ export type ClusterRow = {
   id: string;
   label: string;
   member_count: number;
-  insight_id: string | null;
-  insight_tags: string[] | null;
+  // A cluster can produce multiple insights (one per outcome partition).
+  // The frontend shows one chip per insight.
+  insights: Array<{ id: string; partition: string; tags: string[] }>;
   sample_intents: string[];
   sample_messages: string[];
 };
@@ -69,16 +70,26 @@ export async function getClustersOverview(): Promise<ClustersResponse> {
 
   const clusterIds = clusterRows.map((c) => c.id);
 
-  // 3. For each cluster, look up its insight (if any) to surface "actionable?".
+  // 3. Each cluster can have multiple insights (one per outcome partition).
   const insightRows = await db
     .select({
       clusterId: schema.insights.clusterId,
       insightId: schema.insights.id,
+      partition: schema.insights.partition,
       tags: schema.insights.tags,
     })
     .from(schema.insights)
-    .where(inArray(schema.insights.clusterId, clusterIds));
-  const insightByCluster = new Map(insightRows.map((r) => [r.clusterId, r]));
+    .where(inArray(schema.insights.clusterId, clusterIds))
+    .orderBy(asc(schema.insights.clusterId), asc(schema.insights.partition));
+  const insightsByCluster = new Map<
+    string,
+    Array<{ id: string; partition: string; tags: string[] }>
+  >();
+  for (const r of insightRows) {
+    const arr = insightsByCluster.get(r.clusterId) ?? [];
+    arr.push({ id: r.insightId, partition: r.partition, tags: r.tags });
+    insightsByCluster.set(r.clusterId, arr);
+  }
 
   // 4. Sample intents per cluster — first N alphabetically (stable across runs).
   const sampleIntentsRows = await db
@@ -118,18 +129,14 @@ export async function getClustersOverview(): Promise<ClustersResponse> {
     sampleMessagesByCluster.set(r.clusterId!, arr);
   }
 
-  const clusters: ClusterRow[] = clusterRows.map((c) => {
-    const ins = insightByCluster.get(c.id);
-    return {
-      id: c.id,
-      label: c.label,
-      member_count: c.memberCount,
-      insight_id: ins?.insightId ?? null,
-      insight_tags: ins?.tags ?? null,
-      sample_intents: sampleIntentsByCluster.get(c.id) ?? [],
-      sample_messages: sampleMessagesByCluster.get(c.id) ?? [],
-    };
-  });
+  const clusters: ClusterRow[] = clusterRows.map((c) => ({
+    id: c.id,
+    label: c.label,
+    member_count: c.memberCount,
+    insights: insightsByCluster.get(c.id) ?? [],
+    sample_intents: sampleIntentsByCluster.get(c.id) ?? [],
+    sample_messages: sampleMessagesByCluster.get(c.id) ?? [],
+  }));
 
   return { clusters, intents };
 }
