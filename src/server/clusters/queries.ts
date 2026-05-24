@@ -1,8 +1,3 @@
-// /v1/clusters — backs the Clusters view. Returns every cluster plus every
-// intent (including noise) so the scatter can render all points and the list
-// can show member intents. Includes "has insight?" flag so the UI can show
-// which clusters did/didn't surface as actionable problems.
-
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 
 import { db, schema } from "../../db/client.ts";
@@ -16,8 +11,6 @@ export type ClusterRow = {
   id: string;
   label: string;
   member_count: number;
-  // A cluster can produce multiple insights (one per outcome partition).
-  // The frontend shows one chip per insight.
   insights: Array<{ id: string; partition: string; tags: string[] }>;
   sample_intents: string[];
   sample_messages: string[];
@@ -34,7 +27,6 @@ export type IntentRow = {
 const SAMPLES_PER_CLUSTER = 4;
 
 export async function getClustersOverview(): Promise<ClustersResponse> {
-  // 1. All intents with positions (positions are set for both clustered + noise).
   const intentRows = await db
     .select({
       intent: schema.intents.intent,
@@ -54,7 +46,6 @@ export async function getClustersOverview(): Promise<ClustersResponse> {
     position_y: r.positionY!,
   }));
 
-  // 2. Clusters with member counts (denorm column on clusters table).
   const clusterRows = await db
     .select({
       id: schema.clusters.id,
@@ -70,7 +61,6 @@ export async function getClustersOverview(): Promise<ClustersResponse> {
 
   const clusterIds = clusterRows.map((c) => c.id);
 
-  // 3. Each cluster can have multiple insights (one per outcome partition).
   const insightRows = await db
     .select({
       clusterId: schema.insights.clusterId,
@@ -91,7 +81,6 @@ export async function getClustersOverview(): Promise<ClustersResponse> {
     insightsByCluster.set(r.clusterId, arr);
   }
 
-  // 4. Sample intents per cluster — first N alphabetically (stable across runs).
   const sampleIntentsRows = await db
     .select({
       clusterId: schema.intents.clusterId,
@@ -108,8 +97,6 @@ export async function getClustersOverview(): Promise<ClustersResponse> {
     sampleIntentsByCluster.set(r.clusterId!, arr);
   }
 
-  // 5. Sample user messages per cluster. Stable ordering keeps the endpoint
-  // deterministic; the cap is applied in TS to avoid raw window-function SQL.
   const sampleMessagesRows = await db
     .select({
       clusterId: schema.intents.clusterId,
