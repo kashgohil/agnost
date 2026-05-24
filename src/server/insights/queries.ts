@@ -1,8 +1,9 @@
 // DB queries for the insights API. Typed Drizzle throughout — no raw SQL.
 
-import { and, arrayContains, asc, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, arrayContains, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 
 import { db, schema } from "../../db/client.ts";
+import { type OutcomePartition, partitionConversation } from "../../insights/typology.ts";
 import type { ListInsightsQuery, SortOption } from "./schema.ts";
 
 const UNCATEGORIZED_TAG = "uncategorized";
@@ -13,6 +14,7 @@ export type InsightWithLabel = {
   id: string;
   cluster_id: string;
   cluster_label: string;
+  partition: string;
   tags: string[];
   taxonomy_version: number;
   headline: string;
@@ -71,6 +73,7 @@ export async function listInsights(
       id: schema.insights.id,
       clusterId: schema.insights.clusterId,
       clusterLabel: schema.clusters.label,
+      partition: schema.insights.partition,
       tags: schema.insights.tags,
       taxonomyVersion: schema.insights.taxonomyVersion,
       headline: schema.insights.headline,
@@ -119,6 +122,7 @@ export async function getInsightById(id: string): Promise<InsightWithLabel | nul
       id: schema.insights.id,
       clusterId: schema.insights.clusterId,
       clusterLabel: schema.clusters.label,
+      partition: schema.insights.partition,
       tags: schema.insights.tags,
       taxonomyVersion: schema.insights.taxonomyVersion,
       headline: schema.insights.headline,
@@ -146,6 +150,7 @@ function toInsightWithLabel(row: {
   id: string;
   clusterId: string;
   clusterLabel: string;
+  partition: string;
   tags: string[];
   taxonomyVersion: number;
   headline: string;
@@ -165,6 +170,7 @@ function toInsightWithLabel(row: {
     id: row.id,
     cluster_id: row.clusterId,
     cluster_label: row.clusterLabel,
+    partition: row.partition,
     tags: row.tags,
     taxonomy_version: row.taxonomyVersion,
     headline: row.headline,
@@ -222,34 +228,91 @@ export async function getEvalSet(
   const insight = await getInsightById(insightId);
   if (!insight) return null;
 
-  // Find conversations whose user turns map to any intent in this insight's cluster.
-  const convRows = await db
+  // Conversations whose user turns map to an intent in this insight's cluster
+  // AND whose outcome partition matches the insight's partition. Partition is
+  // not stored — it's computed from the same deterministic function the
+  // pipeline uses, so this re-derives it on the fly. See typology.partitionConversation.
+  const candidateConvs = await db
     .selectDistinct({
       conversationId: schema.turns.conversationId,
+      endReason: schema.conversations.endReason,
       startedAt: schema.conversations.startedAt,
     })
     .from(schema.intents)
     .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
     .innerJoin(schema.turns, eq(schema.turns.id, schema.turnSignals.turnId))
     .innerJoin(schema.conversations, eq(schema.conversations.id, schema.turns.conversationId))
-    .where(eq(schema.intents.clusterId, insight.cluster_id))
-    .orderBy(desc(schema.conversations.startedAt))
-    .limit(limit)
-    .offset(offset);
+    .where(eq(schema.intents.clusterId, insight.cluster_id));
 
-  const totalRows = await db
-    .select({ count: sql<number>`count(distinct ${schema.turns.conversationId})::int` })
+  if (candidateConvs.length === 0) {
+    return { insight, total: 0, conversations: [] };
+  }
+
+  const candidateIds = candidateConvs.map((r) => r.conversationId);
+
+  // Sentiment per (cluster, conversation) — same as aggregate.ts derivation.
+  const sentRows = await db
+    .select({
+      conversationId: schema.turns.conversationId,
+      sentiment: schema.turnSignals.sentiment,
+    })
     .from(schema.intents)
     .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
     .innerJoin(schema.turns, eq(schema.turns.id, schema.turnSignals.turnId))
-    .where(eq(schema.intents.clusterId, insight.cluster_id));
-  const total = totalRows[0]?.count ?? 0;
+    .where(
+      and(
+        eq(schema.intents.clusterId, insight.cluster_id),
+        inArray(schema.turns.conversationId, candidateIds),
+      ),
+    );
+  const sentByConv = new Map<string, { sum: number; n: number }>();
+  for (const r of sentRows) {
+    const e = sentByConv.get(r.conversationId) ?? { sum: 0, n: 0 };
+    e.sum += r.sentiment;
+    e.n += 1;
+    sentByConv.set(r.conversationId, e);
+  }
 
-  if (convRows.length === 0) {
+  // Whether any tool call in the conversation failed.
+  const failRows = await db
+    .select({
+      conversationId: schema.turns.conversationId,
+      status: schema.toolCalls.status,
+    })
+    .from(schema.turns)
+    .innerJoin(schema.toolCalls, eq(schema.toolCalls.turnId, schema.turns.id))
+    .where(inArray(schema.turns.conversationId, candidateIds));
+  const failByConv = new Map<string, boolean>();
+  for (const r of failRows) {
+    if (r.status === "error" || r.status === "empty_result") {
+      failByConv.set(r.conversationId, true);
+    } else if (!failByConv.has(r.conversationId)) {
+      failByConv.set(r.conversationId, false);
+    }
+  }
+
+  // Filter to this partition.
+  const targetPartition = insight.partition as OutcomePartition;
+  const matchingConvs = candidateConvs.filter((c) => {
+    const sent = sentByConv.get(c.conversationId);
+    const sentimentAvg = sent && sent.n > 0 ? sent.sum / sent.n : 0;
+    const partition = partitionConversation({
+      end_reason: c.endReason,
+      sentiment_avg: sentimentAvg,
+      any_tool_failed: failByConv.get(c.conversationId) ?? false,
+    });
+    return partition === targetPartition;
+  });
+
+  matchingConvs.sort((a, b) => (b.startedAt.getTime() - a.startedAt.getTime()));
+  const total = matchingConvs.length;
+  const page = matchingConvs.slice(offset, offset + limit);
+
+  if (page.length === 0) {
     return { insight, total, conversations: [] };
   }
 
-  const conversations = await loadFullConversations(convRows.map((r) => r.conversationId));
+  const conversations = await loadFullConversations(page.map((r) => r.conversationId));
   return { insight, total, conversations };
 }
 
