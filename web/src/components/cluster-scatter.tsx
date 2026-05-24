@@ -27,11 +27,13 @@ export function ClusterScatter({
   intents,
   focusedClusterId,
   onFocus,
+  onOpenInsight,
 }: {
   clusters: ClusterRow[];
   intents: IntentRow[];
   focusedClusterId: string | null;
   onFocus: (clusterId: string | null) => void;
+  onOpenInsight: (clusterId: string | null) => void;
 }) {
   const [hovered, setHovered] = useState<IntentRow | null>(null);
 
@@ -115,7 +117,10 @@ export function ClusterScatter({
                 style={{ cursor: "pointer" }}
                 onMouseEnter={() => setHovered(p)}
                 onMouseLeave={() => setHovered(null)}
-                onClick={() => onFocus(p.cluster_id === focusedClusterId ? null : p.cluster_id)}
+                onClick={() => {
+                  onFocus(p.cluster_id === focusedClusterId ? null : p.cluster_id);
+                  onOpenInsight(p.cluster_id);
+                }}
               />
             );
           })}

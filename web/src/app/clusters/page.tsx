@@ -4,7 +4,8 @@ import { PageNav } from "@/components/page-nav";
 
 export default async function ClustersPage() {
   const data = await fetchClusters();
-  const surfaced = data.clusters.filter((c) => c.insight_id !== null).length;
+  const surfaced = data.clusters.filter((c) => c.insights.length > 0).length;
+  const insightCount = data.clusters.reduce((sum, c) => sum + c.insights.length, 0);
   const noise = data.intents.filter((i) => i.cluster_id === null).length;
 
   return (
@@ -16,7 +17,7 @@ export default async function ClustersPage() {
         <div className="text-ink-mute text-xs">
           {data.clusters.length} {data.clusters.length === 1 ? "cluster" : "clusters"}
           {" · "}
-          {surfaced} surfaced as insights
+          {insightCount} {insightCount === 1 ? "insight" : "insights"} across {surfaced} surfaced
           {" · "}
           {noise} noise {noise === 1 ? "point" : "points"}
         </div>
