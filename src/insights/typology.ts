@@ -8,7 +8,7 @@
 //   1. Append to the relevant axis array below.
 //   2. Add or update a classification rule in `classifyCluster`.
 //   3. Bump TAXONOMY_VERSION.
-//   4. Run `bun generate-insights --force` to re-tag historical insights.
+//   4. Run `bun generate-insights` to re-tag historical insights.
 //
 // Removing a tag: same flow, but verify no insight queries depend on the
 // removed tag string first.
@@ -191,6 +191,17 @@ export function classifyCluster(m: ClusterMetrics): {
 
 function classifyProblem(m: ClusterMetrics): ProblemTag {
   // Order matters — most specific rules first.
+  if (m.partition === "succeeded") {
+    return "success_pattern";
+  }
+
+  if (
+    m.partition === "failed_at_tool" &&
+    m.attributed_cause !== null &&
+    m.attributed_cause.failure_rate > THRESHOLDS.toolFailureMinRate
+  ) {
+    return "tool_failure";
+  }
 
   if (m.avg_tool_calls_per_conv < THRESHOLDS.capabilityGapMaxToolCallsPerConv) {
     return "capability_gap";
