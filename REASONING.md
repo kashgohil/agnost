@@ -2,8 +2,6 @@
 
 Sentiment engine for conversational AI agents. Conversations come in (OpenTelemetry-shaped), get classified per-turn, deduped into intents, clustered into topics, partitioned by outcome, and turned into typed actionable insights for PMs and engineers.
 
-The thing this needs to produce is **insights, not metrics**. *"20% of users requesting refunds due to X."* *"Hidden feature request Y."* A number on its own isn't an insight. A number plus a pattern plus a recommended action is.
-
 ---
 
 ## Pipeline
@@ -48,11 +46,9 @@ flowchart TB
 
 **Two consequences we caught and fixed:**
 
-*Singleton noise.* Clustering runs on the deduplicated set of intent strings, not on the raw messages. So if 314 messages all resolve to one canonical intent (`export_order_history`), HDBSCAN sees a single row. Its `min_cluster_size` rule labels that row as noise. The strongest pattern in the dataset can disappear from the output, ironically because classification worked too well.
-> **Fix:** after HDBSCAN, any noise intent representing 15+ user messages gets promoted to its own single-intent cluster.
+*Singleton noise.* Clustering runs on the deduplicated set of intent strings, not on the raw messages. So if 314 messages all resolve to one canonical intent (`export_order_history`), HDBSCAN sees a single row. Its `min_cluster_size` rule labels that row as noise. The strongest pattern in the dataset can disappear from the output, ironically because classification worked too well. Fixed it by promoting any noise intent representing 15+ user messages to its own single-intent cluster after HDBSCAN.
 
-*Filler intents surfacing as insights.* The promotion rule above also surfaces conversational glue like `provide_order_id` and `acknowledge`. Those aren't actionable topics.
-> **Fix:** `shouldSurfacePartition`, a two-gate filter. Gate A is a regex denylist of filler-shaped intents. Gate B requires the cluster to show at least one real signal: negative sentiment, drop-off, escalation, an attributed tool failure, or a capability gap.
+*Filler intents surfacing as insights.* The promotion rule above also surfaces conversational glue like `provide_order_id` and `acknowledge`. Those aren't actionable topics. Fixed it by two gate filter - `shouldSurfacePartition`. Gate A is a regex denylist of filler-shaped intents. Gate B requires the cluster to show at least one real signal: negative sentiment, drop-off, escalation, an attributed tool failure, or a capability gap.
 
 ### 2. Insight = (cluster, outcome partition), not cluster
 
@@ -71,17 +67,11 @@ After partitioning, the refund cluster splits into four insights:
 
 Four stories, four different recommendations. The seeded truth has 110 refund-failure conversations; the failed_at_tool count is lower because seeded refund conversations also touch other clusters via incidental turns, and the proximity rule (below) splits their tool-call evidence honestly.
 
-**Alternative:** push outcomes into the clustering features themselves. Two problems. First, outcomes belong to conversations, but HDBSCAN clusters intents — you'd have to invent a hybrid distance metric with hand-picked weights between an embedding vector and a categorical attribute. Second, fragmenting clusters by outcome destroys the topic structure that makes the `/clusters` scatter view useful.
+**Alternative:** push outcomes into the clustering features themselves. Two problems. Outcomes belong to conversations, but HDBSCAN clusters intents. Conflating them together may make clustering less effective.
 
 So the two layers stay separate. HDBSCAN does unsupervised topic discovery on intent embeddings. `partitionConversation` does deterministic categorization on conversation attributes. They compose at the insight layer.
 
-**Refinement we caught and fixed.** The first version of partition assignment used "did any tool fail in this conversation" to decide `failed_at_tool`. That bled across clusters. A refund conversation that incidentally hit a `check_inventory` error got the refund cluster tagged as a tool failure, and the lookup cluster inflated to 93 conversations against a seeded truth of 60.
-
-> **Fix: proximity-based tool attribution.** Each tool call is attributed to the user turn that triggered it — the most recent user turn before it in the same conversation. That user turn's intent's cluster is the cluster the tool call counts against. A failing `process_refund` call only counts against the refund cluster if the user turn that triggered it has a refund intent.
->
-> The inputs are turn order, role tags, and per-user-turn intent assignments. Nothing else. Works for any conversation-shaped agent telemetry, not just this scenario.
->
-> The honest cost: when a conversation legitimately touches two clusters, each one only gets credit for the tool calls that responded to its own user turns. So cross-cluster conversations split their evidence between clusters, which is why `failed_at_tool` is 84 against a seeded truth of 110. The seeded conversations include some satisfied-baseline filler turns that pull part of the evidence into adjacent clusters.
+**Refinement we caught and fixed.** The first version of partition assignment used "did any tool fail in this conversation" to decide `failed_at_tool`. That bled across clusters. A refund conversation that incidentally hit a `check_inventory` error got the refund cluster tagged as a tool failure, and the lookup cluster inflated to 93 conversations against a seeded truth of 60. Fixed it by introducing proximity-based tool attribution. Each tool call is attributed to the user turn that triggered it. The most recent user turn before it in the same conversation. That user turn's intent's cluster is the cluster the tool call counts against. A failing `process_refund` call only counts against the refund cluster if the user turn that triggered it has a refund intent.
 
 ### 3. HDBSCAN via Python, everything else TypeScript
 
@@ -89,7 +79,7 @@ So the two layers stay separate. HDBSCAN does unsupervised topic discovery on in
 
 **Why:** HDBSCAN's reference implementation is Python and the TS ports are visibly weaker. The rest of the system is more comfortable in TS, especially the API and UI. Clustering is batch work, not on a hot path, so the subprocess hop doesn't matter.
 
-**Alternative:** all-Python (would have hurt API and UI ergonomics for no gain) or all-TS (would have meant accepting one of the less battle-tested HDBSCAN ports, or switching to DBSCAN and losing its varying-density support).
+**Alternative:** all-Python or All-TS. not bad options. just splitting things to what they are best for made more sense.
 
 UMAP runs in the same subprocess on the same embeddings. It only powers the 2D scatter on the `/clusters` page. Not part of insight generation.
 
@@ -97,11 +87,11 @@ UMAP runs in the same subprocess on the same embeddings. It only powers the 2D s
 
 **Chose:** Postgres 16 with pgvector. HNSW index using `vector_cosine_ops` on the intent embeddings.
 
-**Why:** the whole pipeline is joins. Cluster → intents → signals → turns → tool_calls → conversations. One SQL statement. One operational surface.
+**Why:** the whole pipeline is joins. Cluster -> intents -> signals -> turns -> tool_calls -> conversations. One SQL statement. One operational surface.
 
-**Alternative:** Qdrant, Chroma, Pinecone, Weaviate. Any of those still needs a relational store for the joins, so you're running two systems and keeping them consistent.
+**Alternative:** Qdrant, Chroma, Pinecone. But they would need a relational store for joins. So you're running two systems and keeping them consistent.
 
-Failure attribution (the brief's *"due to X"*) is computed from the join graph, then scoped per (cluster, partition). The DISTINCT CTE in the underlying query matters — without it, N user turns in one conversation multiply the tool-call counts by N. We hit that bug.
+Failure attribution (the brief's *"due to X"*) is computed from the join graph, then scoped per (cluster, partition). The DISTINCT CTE in the underlying query matters - without it, N user turns in one conversation multiply the tool-call counts by N. We hit that bug.
 
 ```sql
 WITH cluster_tool_calls AS (
@@ -117,15 +107,9 @@ SELECT cluster_id, tool_name,
 FROM cluster_tool_calls GROUP BY cluster_id, tool_name;
 ```
 
-**Switch point** to a dedicated vector store: 10M+ vectors with an embedding-dominated workload. Nowhere close.
-
 ### 5. OpenRouter for chat and embeddings
 
-**Chose:** OpenRouter as the gateway for every LLM and embedding call. Same OpenAI-compatible SDK. Swap providers by changing `baseURL` and the model slug.
-
-**Why:** provider flexibility for free, one billing surface, and I had credits there.
-
-**Alternative:** direct OpenAI. A future swap to Claude or Gemini or Qwen becomes an SDK migration instead of a config change.
+**Chose:** No particular reason other than I had credits in OpenRouter.
 
 **Per stage** (each configurable via env):
 - Dataset generator: `openai/gpt-4.1-mini`. I tried `gpt-4o-mini` first; it kept failing on the multi-tool-call constraint.
@@ -139,35 +123,27 @@ FROM cluster_tool_calls GROUP BY cluster_id, tool_name;
 - **Trajectory**: `emerging`, `chronic`, `declining`, `stable`
 - **Severity**: `high`, `medium`, `low`
 
-**Why:** PMs slice on these independently. A tool failure can be emerging or chronic and the response differs in each case. Fixed vocab makes filtering and trend aggregation work — `WHERE 'emerging' = ANY(tags)` is a query that holds across runs. The structured layer is closed. The prose layer (headlines, recommendations, cluster labels) stays open. Mixing them is the thing that goes wrong in most "AI tagging" systems.
+**Why:** PMs slice on these independently. A tool failure can be emerging or chronic and the response differs in each case. Fixed vocab makes filtering and trend aggregation work - `WHERE 'emerging' = ANY(tags)` is a query that holds across runs. The structured layer is closed. The prose layer (headlines, recommendations, cluster labels) stays open. Mixing them is the thing that goes wrong in most "AI tagging" systems.
 
 **Alternative:** a single exclusive type (collapses two real dimensions into one) or dynamic LLM-generated tags (filtering breaks as soon as the model picks "rising" once and "trending_up" the next).
 
 `uncategorized` is a real tag, not a silent fallback. When its rate climbs above ~10%, the taxonomy is going stale. `TAXONOMY_VERSION` is stamped on every insight so historical trend data stays comparable across vocab changes.
 
-### 7. Insights = headline + recommendation + observation, metrics underneath
-
-**Chose:** every insight has a headline (the pattern), a recommendation (what to do), and an optional key observation (a specific finding the aggregates don't show on their own). Metrics still appear — sentiment, volume %, sparkline, attribution, distributions — but as evidence supporting the prose, not as the insight itself.
-
-**Why:** "X% of users did Y" reads like a query result. Adding the pattern and the so-what is what turns the number into something a PM can act on. Metrics get computed by deterministic logic, and so do tags. The LLM is only allowed to write the prose. It receives the cluster label, the partition, the dominant intent strings, sample messages, and the computed metrics, so the writing is grounded in specifics rather than guesses.
-
-**Alternative:** metric-shaped output (easy to generate, doesn't tell a PM what to do) or LLM-classifying everything (loses the structured-layer consistency that powers filtering and trends).
-
-### 8. Eval-set as the engineer's loop-closer
+### 7. Eval-set as the engineer's loop-closer
 
 **Chose:** every insight exposes the conversations it came from. Three previews inline on the insight row, plus a paginated full set at `GET /v1/insights/:id/eval-set`, filtered to the insight's partition.
 
-**Why:** a PM reads an insight. The engineer who has to fix it needs examples. The same conversations also double as a test set — ship the fix, replay them, measure the resolution rate. The recommendation becomes verifiable instead of just readable.
+**Why:** a PM reads an insight. The engineer who has to fix it needs examples. The same conversations also double as a test set - ship the fix, replay them, measure the resolution rate. The recommendation becomes verifiable instead of just readable.
 
 ---
 
 ## What I'd do with a month
 
-1. **Cross-conversation canonicalization.** Each conversation is scored independently today, so `refund_old_order` and `request_refund` from different conversations only merge at the embedding-clustering layer. A two-pass approach would tighten this — extract a free intent first, then either match it to an existing intent above a similarity threshold or add it to the vocabulary.
+1. **Cross-conversation canonicalization.** Each conversation is scored independently today, so `refund_old_order` and `request_refund` from different conversations only merge at the embedding-clustering layer. A two-pass approach would tighten this - extract a free intent first, then either match it to an existing intent above a similarity threshold or add it to the vocabulary.
 2. **Calibrate `min_cluster_size` and other thresholds.** They're guesses right now. The synthetic dataset already produces ground-truth labels per conversation. Wire those into an evaluation harness and pick threshold values that maximize recovery against the labels.
 3. **Multi-intent extraction per turn.** Users sometimes pack two things into one message ("I want a refund AND can you redirect the package"). Today we collapse to one intent per turn and lose the second.
 4. **Replace the filler-intent regex denylist with a learned filter.** `shouldSurfacePartition`'s Gate A is a fixed regex set. Works for known filler patterns but would miss novel ones. A small classifier ("does this intent express a user goal?") would scale better as the dataset grows.
-5. **Eval-set as a runnable harness.** Make the eval-set executable. Point the harness at a new agent build, replay each conversation's user messages, capture the new tool calls, report a resolution rate on the partition and a regression rate on a baseline set. The hard part isn't the harness — it's making replay deterministic when the agent under test hits real APIs (needs a tool-call sandbox or a "replay mode" the agent opts into). Once that exists, LLM-generated patches for `tool_failure` insights can be auto-PR'd with the harness numbers attached. Fixes start being measured instead of just shipped.
+5. **Eval-set as a runnable harness.** Make the eval-set executable. Point the harness at a new agent build, replay each conversation's user messages, capture the new tool calls, report a resolution rate on the partition and a regression rate on a baseline set. The hard part isn't the harness - it's making replay deterministic when the agent under test hits real APIs (needs a tool-call sandbox or a "replay mode" the agent opts into). Once that exists, LLM-generated patches for `tool_failure` insights can be auto-PR'd with the harness numbers attached. Fixes start being measured instead of just shipped.
 6. **Real OTEL collector ingestion.** The inbound shape today is OpenInference-flavored conversation documents. A better version takes raw OTLP spans from any OpenTelemetry-instrumented agent through a collector adapter.
 7. **Drift detection as an insight type.** Week-over-week intent distribution comparison. New tag axis: `regressing`, for something that used to be stable and started going wrong.
 8. **Taxonomy maintenance loop.** When `uncategorized_rate` crosses a threshold, an LLM proposes candidate tags from the samples. A human approves them into code. That bumps `TAXONOMY_VERSION`. A background job re-tags historical insights against the new vocabulary.

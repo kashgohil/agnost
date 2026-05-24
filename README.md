@@ -14,14 +14,17 @@ For design rationale, tradeoffs, rejected alternatives, and one-month extensions
   - frustration markers
   - repeat-intent flag
 - Embeds distinct intent strings and clusters them with HDBSCAN.
-- Aggregates each cluster into typed insights with:
-  - problem / trajectory / severity tags
-  - volume percentage
-  - sentiment average
-  - weekly trend
-  - attributed tool-failure cause when supported by data
-  - example conversations and eval-set endpoint
-- Provides a UI for insight review, cluster inspection, and eval-set browsing.
+- Partitions each cluster's conversations by outcome (`succeeded`, `failed_at_tool`, `dropped_off`, `escalated`, `agent_gave_up`, `unresolved`). One cluster can produce multiple insights, one per partition.
+- Generates each insight as:
+  - headline (the pattern)
+  - recommendation (what to do)
+  - optional key observation (specific finding)
+  - tags across three axes: problem / trajectory / severity
+  - supporting metrics: volume %, sentiment, weekly trend, attributed tool-failure cause, marker + end-reason distributions
+  - example conversations and a paginated eval-set endpoint
+- Provides a UI for insight review, cluster inspection (with a 2D UMAP scatter), and eval-set browsing.
+
+See [REASONING.md](./REASONING.md) for why the insight unit is `(cluster, partition)` rather than `cluster`, and how proximity-based tool attribution works.
 
 ## Stack
 
@@ -175,18 +178,18 @@ Supported query params:
 
 ### `GET /v1/insights/:id`
 
-Fetches one insight.
+Fetches one insight. IDs are composite (`insight_NNNN_<partition>`).
 
 ```bash
-curl http://localhost:3000/v1/insights/insight_0001
+curl http://localhost:3000/v1/insights/insight_0003_failed_at_tool
 ```
 
 ### `GET /v1/insights/:id/eval-set`
 
-Returns paginated full conversations that contributed to the insight.
+Returns paginated full conversations that contributed to the insight, filtered to its partition.
 
 ```bash
-curl "http://localhost:3000/v1/insights/insight_0001/eval-set?limit=5&offset=0"
+curl "http://localhost:3000/v1/insights/insight_0003_failed_at_tool/eval-set?limit=5&offset=0"
 ```
 
 ### `GET /v1/clusters`
