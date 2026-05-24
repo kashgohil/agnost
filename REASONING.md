@@ -66,8 +66,6 @@ The result: the strongest patterns can quietly disappear from the output, *becau
 >
 > These suppressed clusters still live in the DB and appear on the `/clusters` scatter, they just don't produce insights.
 
-**What's left on the table**: per-message embedding precision. Intents that genuinely have multiple meanings (right now, we collapse them). the filler denylist is regex-based and would miss novel filler patterns.
-
 ### 2. HDBSCAN via Python, everything else TypeScript
 
 **Chose:** TS for everything (ingest · signals · embed · persistence · API · UI). One 40-line Python file does the actual clustering, called as a JSON-in/JSON-out subprocess.
@@ -81,8 +79,6 @@ The result: the strongest patterns can quietly disappear from the output, *becau
 **Alternative:**
 - Pure-Python project - would have hurt API + UI ergonomics for no gain.
 - Pure-TS clustering - would have meant DBSCAN's global-`eps` weakness (no varying-density support) or one of the less battle-tested hdbscan ports.
-
-**Tangent on DBSCAN:** in general, varying-density support matters a lot. Here, less - intent strings are normalized so they cluster at fairly uniform density anyway. The bigger HDBSCAN win for us is `min_cluster_size`-only tuning; no `eps` to fight.
 
 The same Python script also runs UMAP on the embeddings to produce a 2D projection used by the `/clusters` scatter. Purely visualization, not part of insight generation.
 
@@ -166,9 +162,7 @@ Another detail is that`uncategorized` is a first-class tag, not a silent fallbac
 - **Key observation** - optional. Only when the data reveals something the aggregates don't. ("Most failures hit orders 31–60 days old - within reach of the policy line.")
 - **Metrics** - volume %, sentiment, weekly sparkline, attribution, marker distribution, end-reason distribution.
 
-The content-generation prompt receives the cluster's metrics, top-N dominant intent strings with message counts and 8 sample user messages, with two hard rules:
-- don't mention a tool unless attribution explicitly names one
-- don't describe a positive-sentiment cluster as a problem
+The content-generation prompt receives the cluster's metrics, top-N dominant intent strings with message counts and 8 sample user messages.
 
 ### 7. Eval-set is the engineer's loop-closer
 
@@ -192,7 +186,7 @@ A mix of known limitations to harden and bigger extensions on top.
 2. **Calibrate `min_cluster_size` and other thresholds.** Right now they're guesses. The synthetic dataset generator already emits ground-truth labels per conversation. Wire those into an evaluation harness and pick threshold values that best recover those seeded ground truth labels.
 3. **Multi-intent extraction per turn.** Users sometimes say two things in one message ("I want a refund AND can you also redirect the package"). Today we collapse to one intent per turn and lose signal. Multi-label extraction would help.
 4. **Replace the regex denylist with a learned filter.** `shouldSurfaceCluster` uses a fixed regex set (`acknowledge`, `provide_*`, `escalation_request`...). Works for known filler patterns but it would miss novel ones. A small classifier ("does this intent express a goal?") would scale better as the dataset grows.
-5. **Eval-set as a runnable harness, then patch suggestions on top.** Today the eval-set is conversations a human reads. The next step is to make it executable — point the harness at a new agent build (Docker image, API endpoint), replay each conversation's user messages, capture the new tool calls, re-run signal extraction, and report *resolution rate on the cluster's conversations* and *regression rate on a baseline set*. The hard part isn't the harness itself but making replay deterministic when the agent under test hits real APIs (needs a tool-call sandbox or a "replay mode" the target agent opts into). Once that exists, an LLM-generated patch for a `tool_failure` insight can be pushed as a PR with the harness numbers attached — fixes get measured, not just shipped. The patch generation is speculative; the harness is the foundation that makes everything downstream of it verifiable.
+5. **Eval-set as a runnable harness.** Today the eval-set is conversations a human reads. The next step is to make it executable. Point the harness at a new agent build, replay each conversation's user messages and report *resolution rate* and *regression rate* or something else. Deterministic replays are hard part (might need mock APIs for tool calls or something else).
 6. **Real OTEL collector ingestion.** Today the inbound shape is OpenInference-flavored conversation documents. A better version accepts raw OTLP spans from any OpenTelemetry-instrumented agent (LangSmith, AgentOps, OpenInference, custom) via a collector adapter.
 7. **Drift detection as an insight type.** Week-over-week intent distribution comparison. New tag axis: `regressing` — something that was stable started going wrong.
 8. **Taxonomy maintenance loop.** When `uncategorized_rate` crosses threshold, an LLM proposes candidate tags from the uncategorized clusters' samples. Human approves into code. Bumps `TAXONOMY_VERSION`. Background job re-tags historical insights.
