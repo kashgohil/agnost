@@ -7,6 +7,7 @@ export type Insight = {
   id: string;
   cluster_id: string;
   cluster_label: string;
+  partition: string;
   tags: string[];
   taxonomy_version: number;
   headline: string;
@@ -67,8 +68,7 @@ export type ClusterRow = {
   id: string;
   label: string;
   member_count: number;
-  insight_id: string | null;
-  insight_tags: string[] | null;
+  insights: Array<{ id: string; partition: string; tags: string[] }>;
   sample_intents: string[];
   sample_messages: string[];
 };
