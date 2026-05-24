@@ -3,6 +3,7 @@
 import { and, arrayContains, asc, desc, eq, gte, inArray, isNotNull, sql } from "drizzle-orm";
 
 import { db, schema } from "../../db/client.ts";
+import { isFailedToolStatus, toolsForIntents } from "../../insights/tool-relevance.ts";
 import { type OutcomePartition, partitionConversation } from "../../insights/typology.ts";
 import type { ListInsightsQuery, SortOption } from "./schema.ts";
 
@@ -273,10 +274,27 @@ export async function getEvalSet(
     sentByConv.set(r.conversationId, e);
   }
 
-  // Whether any tool call in the conversation failed.
+  // Whether any topically relevant tool call in the conversation failed.
+  // This must match aggregate.ts, otherwise the detail/eval-set page can show
+  // a different partition population than the persisted insight row.
+  const intentTurnCount = sql<number>`count(${schema.turnSignals.turnId})::int`;
+  const topIntentRows = await db
+    .select({
+      intent: schema.intents.intent,
+      turnCount: intentTurnCount,
+    })
+    .from(schema.intents)
+    .innerJoin(schema.turnSignals, eq(schema.turnSignals.intent, schema.intents.intent))
+    .where(eq(schema.intents.clusterId, insight.cluster_id))
+    .groupBy(schema.intents.intent)
+    .orderBy(desc(intentTurnCount), asc(schema.intents.intent))
+    .limit(5);
+  const relevantTools = toolsForIntents(topIntentRows.map((r) => r.intent));
+
   const failRows = await db
     .select({
       conversationId: schema.turns.conversationId,
+      toolName: schema.toolCalls.toolName,
       status: schema.toolCalls.status,
     })
     .from(schema.turns)
@@ -284,7 +302,8 @@ export async function getEvalSet(
     .where(inArray(schema.turns.conversationId, candidateIds));
   const failByConv = new Map<string, boolean>();
   for (const r of failRows) {
-    if (r.status === "error" || r.status === "empty_result") {
+    const relevant = relevantTools === null || relevantTools.has(r.toolName);
+    if (relevant && isFailedToolStatus(r.status)) {
       failByConv.set(r.conversationId, true);
     } else if (!failByConv.has(r.conversationId)) {
       failByConv.set(r.conversationId, false);
