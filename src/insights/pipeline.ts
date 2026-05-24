@@ -1,8 +1,4 @@
-// Insights pipeline: aggregate → surface-filter → classify → generate-content → persist.
-//
-// Each iteration unit is a (cluster, partition) pair, not a cluster.
-// shouldSurfacePartition decides which pairs are worth turning into insights;
-// suppressed pairs still exist in the DB but don't get LLM content generation.
+// aggregate → surface-filter → classify → generate-content → persist.
 
 import { Semaphore } from "../lib/concurrency.ts";
 import { aggregateAllClusters } from "./aggregate.ts";
@@ -61,8 +57,6 @@ export async function runInsightsPipeline(opts: {
           opts.contentModel,
         );
         return {
-          // Composite ID: cluster + partition. Stable across re-runs given
-          // the same clustering input.
           id: `insight_${String(i + 1).padStart(4, "0")}_${c.metrics.partition}`,
           cluster_id: c.metrics.cluster_id,
           partition: c.metrics.partition,

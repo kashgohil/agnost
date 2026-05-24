@@ -1,10 +1,5 @@
-// Generate the human-facing content of an insight: headline + recommendation
-// + optional key observation. One LLM call producing structured JSON.
-//
-// Why three fields instead of one headline: a number on its own is data, not
-// an insight. The PM gets metrics in the stat tower already; this layer adds
-// the pattern (headline), the so-what (recommendation), and ideally a
-// specific finding the aggregates don't immediately reveal (key observation).
+// LLM call that produces the human-facing content of an insight: headline,
+// recommendation, and optional key observation. See REASONING.md §7.
 
 import { z } from "zod";
 import { zodToJsonSchema } from "zod-to-json-schema";
@@ -45,9 +40,6 @@ export async function generateContent(
     ? `\n\nReal user messages from this cluster (use to ground specifics — do not directly quote):\n${sampleMessages.map((s) => `- "${s}"`).join("\n")}`
     : "";
 
-  // Top intents give the LLM a compact view of what's actually in the cluster
-  // beyond the LLM-generated label. Helps it write more specific
-  // recommendations grounded in the canonical intent strings, not just samples.
   const topIntentsBlock = m.top_intents.length
     ? `\n\nDominant intent strings in this cluster (canonical phrasings, with their turn counts):\n${m.top_intents.map((ti) => `- ${ti.intent} (${ti.turn_count} turns)`).join("\n")}`
     : "";

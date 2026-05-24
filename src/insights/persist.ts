@@ -1,6 +1,4 @@
-// Atomic replace of all insights for the current taxonomy. Wraps in a
-// transaction so partial state is impossible — either the new generation is
-// fully visible or the old one remains.
+// Atomic replace of all insights — old set stays visible until the new one commits.
 
 import { db, schema } from "../db/client.ts";
 
