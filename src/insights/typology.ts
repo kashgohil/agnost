@@ -1,30 +1,11 @@
-// The insight typology: three orthogonal tag axes.
-//
-// Fixed vocabulary — see REASONING.md for the "structured layer is closed,
-// content layer is open" argument. Domain-specific richness lives in cluster
-// labels (LLM-generated), not in invented tag strings.
-//
-// Adding a new tag:
-//   1. Append to the relevant axis array below.
-//   2. Add or update a classification rule in `classifyCluster`.
-//   3. Bump TAXONOMY_VERSION.
-//   4. Run `bun generate-insights` to re-tag historical insights.
-//
-// Removing a tag: same flow, but verify no insight queries depend on the
-// removed tag string first.
+// Insight typology — three orthogonal tag axes plus an outcome partition.
+// Adding a tag: append below, update classifyCluster, bump TAXONOMY_VERSION,
+// re-run `bun generate-insights`.
 
 export const TAXONOMY_VERSION = 2;
+// v1: 7 problems, 4 trajectories, 3 severities.
+// v2: outcome partition layer added; insights are per (cluster, partition).
 
-// Changelog (keep in sync with TAXONOMY_VERSION):
-// v1 (2026-05-24): initial — 7 problem categories, 4 trajectories, 3 severities.
-// v2 (2026-05-24): added outcome partition layer (6 partitions). Insights are now
-//                  generated per (cluster, partition) pair rather than per cluster.
-
-// Outcome partition — a deterministic categorization of how a conversation
-// played out. Cluster = topic (refund-related). Partition = outcome (succeeded,
-// failed at tool, dropped off). Insight = (cluster, partition). One topic can
-// produce multiple insights because the same topic plays out differently for
-// different users.
 export const OUTCOME_PARTITIONS = [
   "succeeded",       // resolved + positive sentiment + no failing tools
   "failed_at_tool",  // an attributable tool failed in this conversation
@@ -36,8 +17,6 @@ export const OUTCOME_PARTITIONS = [
 
 export type OutcomePartition = (typeof OUTCOME_PARTITIONS)[number];
 
-// Inputs needed to partition a single conversation. All these are facts that
-// already exist on or are derivable from the conversation + its tool calls.
 export type ConversationOutcomeFacts = {
   end_reason: string;
   sentiment_avg: number;       // avg sentiment across user turns
@@ -56,9 +35,7 @@ export function partitionConversation(f: ConversationOutcomeFacts): OutcomeParti
   return "unresolved";
 }
 
-// Minimum conversations a partition must have to surface as its own insight.
-// Below this we'd be generating insights on near-empty buckets — noise more
-// than signal. Tunable.
+// Below this, partitions are too small to be worth surfacing.
 export const MIN_PARTITION_VOLUME = 5;
 
 export const PROBLEM_TAGS = [
@@ -90,8 +67,6 @@ export type TrajectoryTag = (typeof TRAJECTORY_TAGS)[number];
 export type SeverityTag = (typeof SEVERITY_TAGS)[number];
 export type InsightTag = ProblemTag | TrajectoryTag | SeverityTag;
 
-// Thresholds — exposed so REASONING.md can defend the numbers and a future
-// config layer can override them per environment.
 export const THRESHOLDS = {
   capabilityGapMaxToolCallsPerConv: 0.5,
   dropOffMinRate: 0.5,
@@ -110,10 +85,6 @@ export const THRESHOLDS = {
   severityLowMaxVolume: 0.02,
 } as const;
 
-// Metrics for one (cluster, partition) cell — the unit that becomes an insight.
-// A single cluster_id can appear under multiple partitions in the pipeline output.
-// Some fields drive classification (sentiment, repeat rate, etc.); others are
-// pass-through for persistence (example_conversation_ids).
 export type ClusterMetrics = {
   cluster_id: string;
   cluster_label: string;
@@ -134,9 +105,7 @@ export type ClusterMetrics = {
   sample_messages: string[];
 };
 
-// Not every clustered user turn is a PM-worthy topic. These are common
-// conversation mechanics that cut across many real problems and otherwise
-// become noisy "insights" like "users provide order IDs".
+// Conversational glue that shouldn't surface as a topic on its own.
 const NON_TOPIC_INTENT_PATTERNS = [
   /^acknowledge$/,
   /^provide_/,
@@ -148,10 +117,6 @@ const NON_TOPIC_INTENT_PATTERNS = [
   /^abandon(ment)?_/,
 ] as const;
 
-// A partition surfaces as an insight if it has enough volume AND its anchor
-// cluster has a topical (not filler) intent. Volume floor catches near-empty
-// partitions; the filler check prevents "users acknowledge" type clusters
-// from producing any insights regardless of partition.
 export function shouldSurfacePartition(m: ClusterMetrics): boolean {
   if (m.conversation_count < MIN_PARTITION_VOLUME) return false;
 
@@ -161,8 +126,6 @@ export function shouldSurfacePartition(m: ClusterMetrics): boolean {
     : false;
   if (isNonTopic) return false;
 
-  // succeeded / failed_at_tool partitions are always actionable (positive or
-  // negative). Other partitions need at least one signal beyond mere volume.
   if (m.partition === "succeeded" || m.partition === "failed_at_tool") return true;
 
   const dropOffRate = m.end_reason_distribution["user_dropped"] ?? 0;
@@ -176,7 +139,6 @@ export function shouldSurfacePartition(m: ClusterMetrics): boolean {
   );
 }
 
-// Returns the full tag set for a cluster across all three axes.
 export function classifyCluster(m: ClusterMetrics): {
   problem: ProblemTag;
   trajectory: TrajectoryTag;
