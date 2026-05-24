@@ -1,17 +1,18 @@
-// Insights pipeline: aggregate → classify → generate-content → persist.
+// Insights pipeline: aggregate → surface-filter → classify → generate-content → persist.
 //
-// Reports an `uncategorized_rate` because tag-staleness is the operational
-// signal that the taxonomy needs maintenance (see typology.ts changelog).
+// Each iteration unit is a (cluster, partition) pair, not a cluster.
+// shouldSurfacePartition decides which pairs are worth turning into insights;
+// suppressed pairs still exist in the DB but don't get LLM content generation.
 
 import { Semaphore } from "../lib/concurrency.ts";
 import { aggregateAllClusters } from "./aggregate.ts";
 import { generateContent } from "./content.ts";
 import { persistInsights, type InsightRecord } from "./persist.ts";
-import { TAXONOMY_VERSION, classifyCluster, shouldSurfaceCluster } from "./typology.ts";
+import { TAXONOMY_VERSION, classifyCluster, shouldSurfacePartition } from "./typology.ts";
 
 export type InsightsStats = {
-  clusters_processed: number;
-  clusters_suppressed: number;
+  partitions_processed: number;
+  partitions_suppressed: number;
   insights_written: number;
   uncategorized_count: number;
   uncategorized_rate: number;
@@ -30,8 +31,8 @@ export async function runInsightsPipeline(opts: {
 
   if (metrics.length === 0) {
     return {
-      clusters_processed: 0,
-      clusters_suppressed: 0,
+      partitions_processed: 0,
+      partitions_suppressed: 0,
       insights_written: 0,
       uncategorized_count: 0,
       uncategorized_rate: 0,
@@ -39,12 +40,13 @@ export async function runInsightsPipeline(opts: {
     };
   }
 
-  log("classify", `${metrics.length} clusters`);
-  const surfacedMetrics = metrics.filter(shouldSurfaceCluster);
-  const suppressed = metrics.length - surfacedMetrics.length;
-  if (suppressed > 0) log("suppress", `${suppressed} non-topic cluster(s)`);
+  log("surface", `${metrics.length} (cluster, partition) pairs`);
+  const surfaced = metrics.filter(shouldSurfacePartition);
+  const suppressed = metrics.length - surfaced.length;
+  if (suppressed > 0) log("suppress", `${suppressed} pair(s)`);
 
-  const classified = surfacedMetrics.map((m) => ({ metrics: m, tags: classifyCluster(m) }));
+  log("classify", `${surfaced.length} pairs`);
+  const classified = surfaced.map((m) => ({ metrics: m, tags: classifyCluster(m) }));
   const uncategorized = classified.filter((c) => c.tags.problem === "uncategorized").length;
 
   log("content");
@@ -59,8 +61,11 @@ export async function runInsightsPipeline(opts: {
           opts.contentModel,
         );
         return {
-          id: `insight_${String(i + 1).padStart(4, "0")}`,
+          // Composite ID: cluster + partition. Stable across re-runs given
+          // the same clustering input.
+          id: `insight_${String(i + 1).padStart(4, "0")}_${c.metrics.partition}`,
           cluster_id: c.metrics.cluster_id,
+          partition: c.metrics.partition,
           tags: [c.tags.problem, c.tags.trajectory, c.tags.severity],
           taxonomy_version: TAXONOMY_VERSION,
           headline: content.headline,
@@ -83,11 +88,11 @@ export async function runInsightsPipeline(opts: {
   await persistInsights(insights);
 
   return {
-    clusters_processed: metrics.length,
-    clusters_suppressed: suppressed,
+    partitions_processed: metrics.length,
+    partitions_suppressed: suppressed,
     insights_written: insights.length,
     uncategorized_count: uncategorized,
-    uncategorized_rate: metrics.length > 0 ? uncategorized / metrics.length : 0,
+    uncategorized_rate: surfaced.length > 0 ? uncategorized / surfaced.length : 0,
     taxonomy_version: TAXONOMY_VERSION,
   };
 }
