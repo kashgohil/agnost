@@ -9,20 +9,20 @@ Its **insights, not metrics** — *"20% of users requesting refunds due to X"*, 
 ## Pipeline
 
 ```mermaid
-flowchart LR
-    POST["POST<br/>/v1/traces"]
+flowchart TB
+    POST["POST /v1/traces"]
     POST --> Convos[("conversations")]
-    Convos --> L1(["LLM<br/>signal extract"])
+    Convos --> L1(["LLM · signal extract"])
     L1 --> Sigs[("turn_signals")]
-    Sigs --> L2(["LLM<br/>embed"])
-    L2 --> HDB["HDBSCAN<br/>Python"]
-    HDB --> L3(["LLM<br/>label cluster"])
-    L3 --> Ints[("intents<br/>+ clusters")]
-    Ints --> Agg["Aggregate<br/>+ classify"]
-    Agg --> L4(["LLM<br/>insight content"])
+    Sigs --> L2(["LLM · embed intents"])
+    L2 --> HDB["HDBSCAN · Python"]
+    HDB --> L3(["LLM · label cluster"])
+    L3 --> Ints[("intents + clusters")]
+    Ints --> Agg["Aggregate + classify"]
+    Agg --> L4(["LLM · insight content"])
     L4 --> Ins[("insights")]
-    Ins --> GET["GET<br/>/v1/insights"]
-    GET --> UI["Next.js<br/>UI"]
+    Ins --> GET["GET /v1/insights"]
+    GET --> UI["Next.js UI"]
 
     classDef store fill:#f4f4f5,stroke:#a1a1aa,color:#18181b
     classDef compute fill:#fff,stroke:#27272a,color:#18181b
